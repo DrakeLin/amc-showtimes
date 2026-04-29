@@ -130,7 +130,8 @@ def lb_slug(title):
     return t
 
 
-def get_lb_rating(title):
+def get_lb_data(title):
+    """Fetch rating and synopsis from Letterboxd in a single request."""
     slug = lb_slug(title)
     year = date.today().year
     candidates = [
@@ -143,49 +144,34 @@ def get_lb_rating(title):
         try:
             time.sleep(0.3)
             html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
+
+            # Extract rating
+            rating = "N/A"
             m = _LB_RATING_RE.search(html)
             if m:
-                return m.group(1)
-            m = _LB_LD_RE.search(html)
-            if m:
-                return m.group(1)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
-            raise
-        except Exception:
-            continue
-    return "N/A"
+                rating = m.group(1)
+            else:
+                m = _LB_LD_RE.search(html)
+                if m:
+                    rating = m.group(1)
 
-
-def get_lb_synopsis(title):
-    """Extract synopsis from Letterboxd og:description meta tag."""
-    slug = lb_slug(title)
-    year = date.today().year
-    candidates = [
-        f"{LB_BASE}/film/{slug}/",
-        f"{LB_BASE}/film/{slug}-{year}/",
-        f"{LB_BASE}/film/{slug}-{year - 1}/",
-        f"{LB_BASE}/film/{slug}-{year - 2}/",
-    ]
-    for url in candidates:
-        try:
-            time.sleep(0.2)
-            html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
+            # Extract synopsis
+            synopsis = ""
             m = re.search(r'<meta property="og:description" content="([^"]+)"', html)
             if m:
                 synopsis = m.group(1).strip()
                 if len(synopsis) > 20 and "rating" not in synopsis.lower():
                     if len(synopsis) > 160:
                         synopsis = synopsis[:157] + "..."
-                    return synopsis
+
+            return rating, synopsis
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
             raise
         except Exception:
             continue
-    return ""
+    return "N/A", ""
 
 
 
@@ -361,14 +347,13 @@ def main():
 
             # Letterboxd ratings + synopsis -- deduplicated by title
             seen_lb = {}
-            seen_synopsis = {}
             for (title, _fmt), mv in movies.items():
                 if title not in seen_lb:
                     print(f"  Letterboxd: {title}", file=sys.stderr)
-                    seen_lb[title] = get_lb_rating(title)
-                    seen_synopsis[title] = get_lb_synopsis(title)
-                mv["lb_rating"] = seen_lb[title]
-                mv["synopsis"] = seen_synopsis.get(title, "")
+                    rating, synopsis = get_lb_data(title)
+                    seen_lb[title] = (rating, synopsis)
+                mv["lb_rating"] = seen_lb[title][0]
+                mv["synopsis"] = seen_lb[title][1]
 
             digest[theatre_name][show_date] = list(movies.values())
 
