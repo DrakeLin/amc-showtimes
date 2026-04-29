@@ -11,8 +11,6 @@ import urllib.request
 from datetime import date, timedelta
 from typing import Optional
 
-import anthropic
-
 # -- Configuration -------------------------------------------------------------
 THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
 
@@ -190,12 +188,6 @@ def get_lb_synopsis(title):
     return ""
 
 
-# -- Synopsis via Letterboxd -----------------------------------------------
-
-
-def get_synopsis(title):
-    """Letterboxd is already being fetched for ratings; synopsis comes from there."""
-    return ""
 
 
 # -- HTML rendering ------------------------------------------------------------
