@@ -160,13 +160,11 @@ def get_lb_rating(title):
     return "N/A"
 
 
-# -- Wikipedia synopsis --------------------------------------------------------
-_WIKI_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
-_WIKI_HEADERS = {"Accept": "application/json", "User-Agent": "amc-notify/1.0 (drakelin18@gmail.com)"}
+# -- Synopsis via Claude (Wikipedia is blocked in this environment) --------
 
 
-def _synopsis_from_claude(title):
-    """Fallback: ask Claude Haiku for a one-sentence film synopsis."""
+def get_synopsis(title):
+    """Get synopsis via Claude API. Set ANTHROPIC_API_KEY env var to enable."""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return ""
@@ -188,52 +186,8 @@ def _synopsis_from_claude(title):
             text = text[:157] + "..."
         return text
     except Exception as e:
-        print(f"  WARN Claude synopsis failed for '{title}': {e}", file=sys.stderr)
+        print(f"    WARN Claude synopsis failed for '{title}': {e}", file=sys.stderr)
         return ""
-
-
-def get_synopsis(title):
-    clean = _FORMAT_STRIP_RE.sub("", title).strip()
-    year = date.today().year
-    candidates = [
-        clean,
-        f"{clean} ({year} film)",
-        f"{clean} ({year - 1} film)",
-        f"{clean} ({year - 2} film)",
-        clean + " (film)",
-        clean + " (film series)",
-    ]
-    for slug in candidates:
-        encoded = urllib.request.quote(slug.replace(" ", "_"))
-        try:
-            raw = _get(f"{_WIKI_BASE}/{encoded}", headers=_WIKI_HEADERS)
-            data = json.loads(raw)
-            # Skip disambiguation pages
-            if data.get("type") == "disambiguation":
-                continue
-            extract = data.get("extract", "").strip()
-            if not extract:
-                continue
-            # Skip articles that aren't about a film/movie
-            desc = (data.get("description") or "").lower()
-            cats = extract[:300].lower()
-            if not any(w in desc or w in cats for w in ("film", "movie", "directed")):
-                continue
-            # Return the first sentence, capped at 160 chars
-            first = extract.split(". ")[0]
-            if len(first) > 160:
-                first = first[:157] + "..."
-            return first + ("." if not first.endswith(".") else "")
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
-            print(f"    WARN Wikipedia {exc.code} for '{slug}'", file=sys.stderr)
-            return _synopsis_from_claude(title)
-        except Exception as e:
-            print(f"    WARN Wikipedia error for '{slug}': {e}", file=sys.stderr)
-            continue
-    print(f"    INFO Wikipedia not found, trying Claude for '{title}'", file=sys.stderr)
-    return _synopsis_from_claude(title)
 
 
 # -- HTML rendering ------------------------------------------------------------
