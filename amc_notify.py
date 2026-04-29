@@ -37,7 +37,7 @@ _FORMAT_STRIP_RE = re.compile(
 
 # -- HTTP helper ---------------------------------------------------------------
 def _get(url, headers=None, retries=4):
-    req_headers = {"Accept": "application/json", "User-Agent": "amc-notify/1.0"}
+    req_headers = {"Accept": "application/json", "User-Agent": "amc-notify/1.0 (drakelin18@gmail.com)"}
     if headers:
         req_headers.update(headers)
     req = urllib.request.Request(url, headers=req_headers)
@@ -160,7 +160,7 @@ def get_lb_rating(title):
 
 # -- Wikipedia synopsis --------------------------------------------------------
 _WIKI_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
-_WIKI_HEADERS = {"Accept": "application/json", "User-Agent": "amc-notify/1.0"}
+_WIKI_HEADERS = {"Accept": "application/json", "User-Agent": "amc-notify/1.0 (drakelin18@gmail.com)"}
 
 
 def get_synopsis(title):
@@ -198,7 +198,7 @@ def get_synopsis(title):
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
-            raise
+            return ""  # blocked or unexpected error from Wikipedia
         except Exception:
             continue
     return ""
