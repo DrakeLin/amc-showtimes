@@ -178,7 +178,6 @@ def get_lb_data(title):
 # -- HTML rendering ------------------------------------------------------------
 _CSS = """
   body  { font-family: Georgia, serif; max-width: 680px; margin: 2em auto; color: #222; }
-  h1    { font-size: 1.4em; border-bottom: 2px solid #c00; padding-bottom: .3em; }
   .movie-block { margin: 1.6em 0 0; }
   .movie-title  { font-size: 1.05em; font-weight: bold; margin: 0 0 .1em; }
   .movie-rating { font-size: .9em; color: #e07000; font-weight: bold; }
