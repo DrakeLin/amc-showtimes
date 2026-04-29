@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """AMC SF evening-showtime digest -> stdout JSON {subject, html}."""
 
+
 import json
 import os
 import re
@@ -235,42 +236,11 @@ def render(digest):
 
     movies = _pivot(digest)
 
-    # Build markdown output
-    md_parts = [
-        f"{intro}\n\n",
-    ]
-
     def _sort_key(title):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    for title in sorted(movies, key=_sort_key):
-        info = movies[title]
-        rating = info["lb_rating"]
-        rating_str = f"{rating} ★" if rating != "N/A" else "N/A"
-
-        md_parts.append(f"## {title} {rating_str}\n\n")
-
-        synopsis = info.get("synopsis", "")
-        if synopsis:
-            md_parts.append(f"*{synopsis}*\n\n")
-
-        md_parts.append("| Day | Theatre | Format | Showtimes |\n")
-        md_parts.append("|-----|---------|--------|----------|\n")
-
-        for show_date in sorted(info["days"]):
-            day_label = show_date.strftime("%a %-m/%-d")
-            for theatre, fmt, times in sorted(info["days"][show_date]):
-                times_str = "  ".join(times)
-                md_parts.append(
-                    f"| {day_label} | {theatre} | {fmt} | {times_str} |\n"
-                )
-
-        md_parts.append("\n")
-
-    markdown = "".join(md_parts)
-
-    # Also generate HTML version for email
+    # Generate HTML version for email
     html_parts = [
         '<!DOCTYPE html><html><head><meta charset="utf-8">',
         f"<style>{_CSS}</style></head><body>\n",
@@ -312,7 +282,7 @@ def render(digest):
 
     html_parts.append("</body></html>")
     html = "".join(html_parts)
-    return markdown, subject, html
+    return subject, html
 
 
 # -- Main ----------------------------------------------------------------------
@@ -366,8 +336,8 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    markdown, subject, html = render(digest)
-    print(json.dumps({"subject": subject, "markdown": markdown, "html": html}))
+    subject, html = render(digest)
+    print(json.dumps({"subject": subject, "html": html}))
 
 
 if __name__ == "__main__":
