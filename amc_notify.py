@@ -187,7 +187,8 @@ def _synopsis_from_claude(title):
         if len(text) > 160:
             text = text[:157] + "..."
         return text
-    except Exception:
+    except Exception as e:
+        print(f"  WARN Claude synopsis failed for '{title}': {e}", file=sys.stderr)
         return ""
 
 
@@ -226,9 +227,12 @@ def get_synopsis(title):
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
-            return _synopsis_from_claude(title)  # blocked or unexpected error from Wikipedia
-        except Exception:
+            print(f"    WARN Wikipedia {exc.code} for '{slug}'", file=sys.stderr)
+            return _synopsis_from_claude(title)
+        except Exception as e:
+            print(f"    WARN Wikipedia error for '{slug}': {e}", file=sys.stderr)
             continue
+    print(f"    INFO Wikipedia not found, trying Claude for '{title}'", file=sys.stderr)
     return _synopsis_from_claude(title)
 
 
@@ -283,15 +287,47 @@ def render(digest):
 
     movies = _pivot(digest)
 
-    parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">',
-        f"<style>{_CSS}</style></head><body>\n",
-        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+    # Build markdown output
+    md_parts = [
+        f"# AMC SF Evening Showtimes — {date_labels}\n\n",
     ]
 
     def _sort_key(title):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
+
+    for title in sorted(movies, key=_sort_key):
+        info = movies[title]
+        rating = info["lb_rating"]
+        rating_str = f"{rating} ★" if rating != "N/A" else "N/A"
+
+        md_parts.append(f"## {title} {rating_str}\n\n")
+
+        synopsis = info.get("synopsis", "")
+        if synopsis:
+            md_parts.append(f"*{synopsis}*\n\n")
+
+        md_parts.append("| Day | Theatre | Format | Showtimes |\n")
+        md_parts.append("|-----|---------|--------|----------|\n")
+
+        for show_date in sorted(info["days"]):
+            day_label = show_date.strftime("%a %-m/%-d")
+            for theatre, fmt, times in sorted(info["days"][show_date]):
+                times_str = "  ".join(times)
+                md_parts.append(
+                    f"| {day_label} | {theatre} | {fmt} | {times_str} |\n"
+                )
+
+        md_parts.append("\n")
+
+    markdown = "".join(md_parts)
+
+    # Also generate HTML version for email
+    html_parts = [
+        '<!DOCTYPE html><html><head><meta charset="utf-8">',
+        f"<style>{_CSS}</style></head><body>\n",
+        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+    ]
 
     for i, title in enumerate(sorted(movies, key=_sort_key)):
         info = movies[title]
@@ -302,10 +338,10 @@ def render(digest):
             else "<span class='na'>N/A</span>"
         )
         if i > 0:
-            parts.append("<hr class='sep'>\n")
+            html_parts.append("<hr class='sep'>\n")
         synopsis = info.get("synopsis", "")
         synopsis_html = f"<p class='synopsis'>{synopsis}</p>\n" if synopsis else ""
-        parts.append(
+        html_parts.append(
             f"<div class='movie-block'>"
             f"<p class='movie-title'>{title}&ensp;{rating_html}</p>\n"
             f"{synopsis_html}"
@@ -317,16 +353,17 @@ def render(digest):
             day_label = show_date.strftime("%a %-m/%-d")
             for theatre, fmt, times in sorted(info["days"][show_date]):
                 times_str = "&nbsp;&nbsp;".join(times)
-                parts.append(
+                html_parts.append(
                     f"<tr><td>{day_label}</td>"
                     f"<td>{theatre}</td>"
                     f"<td><span class='fmt'>{fmt}</span></td>"
                     f"<td>{times_str}</td></tr>\n"
                 )
-        parts.append("</table></div>\n")
+        html_parts.append("</table></div>\n")
 
-    parts.append("</body></html>")
-    return "".join(parts), subject
+    html_parts.append("</body></html>")
+    html = "".join(html_parts)
+    return markdown, subject, html
 
 
 # -- Main ----------------------------------------------------------------------
@@ -383,8 +420,8 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    html, subject = render(digest)
-    print(json.dumps({"subject": subject, "html": html}))
+    markdown, subject, html = render(digest)
+    print(json.dumps({"subject": subject, "markdown": markdown, "html": html}))
 
 
 if __name__ == "__main__":
