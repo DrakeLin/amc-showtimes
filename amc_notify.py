@@ -160,9 +160,8 @@ def get_lb_data(title):
             m = re.search(r'<meta property="og:description" content="([^"]+)"', html)
             if m:
                 synopsis = m.group(1).strip()
-                if len(synopsis) > 20 and "rating" not in synopsis.lower():
-                    if len(synopsis) > 160:
-                        synopsis = synopsis[:157] + "..."
+                if len(synopsis) <= 20 or "rating" in synopsis.lower():
+                    synopsis = ""
 
             return rating, synopsis
         except urllib.error.HTTPError as exc:
@@ -179,7 +178,6 @@ def get_lb_data(title):
 # -- HTML rendering ------------------------------------------------------------
 _CSS = """
   body  { font-family: Georgia, serif; max-width: 680px; margin: 2em auto; color: #222; }
-  h1    { font-size: 1.4em; border-bottom: 2px solid #c00; padding-bottom: .3em; }
   .movie-block { margin: 1.6em 0 0; }
   .movie-title  { font-size: 1.05em; font-weight: bold; margin: 0 0 .1em; }
   .movie-rating { font-size: .9em; color: #e07000; font-weight: bold; }
@@ -223,14 +221,23 @@ def _pivot(digest):
 def render(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
     date_labels = " / ".join(d.strftime("%-m/%-d") for d in all_dates)
+    date_range_short = f"{all_dates[0].strftime('%-m/%-d')} - {all_dates[-1].strftime('%-m/%-d')}"
     date_range = f"{all_dates[0].strftime('%A %-m/%-d')} - {all_dates[-1].strftime('%A %-m/%-d')}"
     subject = f"AMC SF Showtimes - {date_range}"
+
+    def _fmt_hour(h):
+        return f"{h % 12 or 12} {'pm' if h >= 12 else 'am'}"
+
+    intro = (
+        f"Here are the movies, ordered by letterboxd rating, "
+        f"for {date_range_short} from {_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
+    )
 
     movies = _pivot(digest)
 
     # Build markdown output
     md_parts = [
-        f"# AMC SF Evening Showtimes — {date_labels}\n\n",
+        f"{intro}\n\n",
     ]
 
     def _sort_key(title):
@@ -267,7 +274,8 @@ def render(digest):
     html_parts = [
         '<!DOCTYPE html><html><head><meta charset="utf-8">',
         f"<style>{_CSS}</style></head><body>\n",
-        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+        f"<p>{intro}</p>\n",
+        "<hr>\n",
     ]
 
     for i, title in enumerate(sorted(movies, key=_sort_key)):
