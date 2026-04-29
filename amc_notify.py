@@ -160,34 +160,42 @@ def get_lb_rating(title):
     return "N/A"
 
 
-# -- Synopsis via Claude (Wikipedia is blocked in this environment) --------
+def get_lb_synopsis(title):
+    """Extract synopsis from Letterboxd og:description meta tag."""
+    slug = lb_slug(title)
+    year = date.today().year
+    candidates = [
+        f"{LB_BASE}/film/{slug}/",
+        f"{LB_BASE}/film/{slug}-{year}/",
+        f"{LB_BASE}/film/{slug}-{year - 1}/",
+        f"{LB_BASE}/film/{slug}-{year - 2}/",
+    ]
+    for url in candidates:
+        try:
+            time.sleep(0.2)
+            html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
+            m = re.search(r'<meta property="og:description" content="([^"]+)"', html)
+            if m:
+                synopsis = m.group(1).strip()
+                if len(synopsis) > 20 and "rating" not in synopsis.lower():
+                    if len(synopsis) > 160:
+                        synopsis = synopsis[:157] + "..."
+                    return synopsis
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+        except Exception:
+            continue
+    return ""
+
+
+# -- Synopsis via Letterboxd -----------------------------------------------
 
 
 def get_synopsis(title):
-    """Get synopsis via Claude API. Set ANTHROPIC_API_KEY env var to enable."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return ""
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=100,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Give me a single sentence (max 160 characters) describing what the film "
-                    f'"{title}" is about. Reply with only that sentence, no quotes or preamble.'
-                ),
-            }],
-        )
-        text = next((b.text for b in response.content if b.type == "text"), "").strip()
-        if len(text) > 160:
-            text = text[:157] + "..."
-        return text
-    except Exception as e:
-        print(f"    WARN Claude synopsis failed for '{title}': {e}", file=sys.stderr)
-        return ""
+    """Letterboxd is already being fetched for ratings; synopsis comes from there."""
+    return ""
 
 
 # -- HTML rendering ------------------------------------------------------------
@@ -359,18 +367,16 @@ def main():
                 if t_label not in movies[key]["times"]:
                     movies[key]["times"].append(t_label)
 
-            # Letterboxd ratings + Wikipedia synopsis -- deduplicated by title
+            # Letterboxd ratings + synopsis -- deduplicated by title
             seen_lb = {}
             seen_synopsis = {}
             for (title, _fmt), mv in movies.items():
                 if title not in seen_lb:
                     print(f"  Letterboxd: {title}", file=sys.stderr)
                     seen_lb[title] = get_lb_rating(title)
-                if title not in seen_synopsis:
-                    print(f"  Synopsis:   {title}", file=sys.stderr)
-                    seen_synopsis[title] = get_synopsis(title)
+                    seen_synopsis[title] = get_lb_synopsis(title)
                 mv["lb_rating"] = seen_lb[title]
-                mv["synopsis"] = seen_synopsis[title]
+                mv["synopsis"] = seen_synopsis.get(title, "")
 
             digest[theatre_name][show_date] = list(movies.values())
 
