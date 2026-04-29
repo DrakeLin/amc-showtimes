@@ -185,10 +185,10 @@ _CSS = """
   .movie-rating { font-size: .9em; color: #e07000; font-weight: bold; }
   .synopsis { font-size: .84em; color: #555; margin: .15em 0 .4em; font-style: italic; }
   .na   { color: #bbb; }
-  table { border-collapse: collapse; width: 100%; font-size: .86em; margin-top: .4em; }
-  th    { text-align: left; border-bottom: 1px solid #ddd; padding: .25em .6em;
-          color: #888; font-weight: normal; }
-  td    { padding: .25em .6em; vertical-align: top; }
+  table { border-collapse: collapse; width: 100%; font-size: .86em; margin-top: .4em; border: 1px solid #ccc; }
+  th    { text-align: left; border: 1px solid #ccc; padding: .25em .6em;
+          color: #888; font-weight: normal; background: #f5f5f5; }
+  td    { padding: .25em .6em; vertical-align: top; border: 1px solid #ccc; }
   tr:nth-child(even) { background: #f9f9f9; }
   .fmt  { font-size: .8em; color: #999; }
   hr.sep { border: none; border-top: 1px solid #eee; margin: 1.2em 0 0; }
@@ -223,7 +223,8 @@ def _pivot(digest):
 def render(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
     date_labels = " / ".join(d.strftime("%-m/%-d") for d in all_dates)
-    subject = "AMC SF Showtimes — " + date_labels
+    date_range = f"{all_dates[0].strftime('%A %-m/%-d')} - {all_dates[-1].strftime('%A %-m/%-d')}"
+    subject = f"AMC SF Showtimes - {date_range}"
 
     movies = _pivot(digest)
 
