@@ -275,6 +275,7 @@ def render(digest):
         '<!DOCTYPE html><html><head><meta charset="utf-8">',
         f"<style>{_CSS}</style></head><body>\n",
         f"<p>{intro}</p>\n",
+        "<hr>\n",
     ]
 
     for i, title in enumerate(sorted(movies, key=_sort_key)):
