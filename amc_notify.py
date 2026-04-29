@@ -11,6 +11,8 @@ import urllib.request
 from datetime import date, timedelta
 from typing import Optional
 
+import anthropic
+
 # -- Configuration -------------------------------------------------------------
 THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
 
@@ -163,6 +165,32 @@ _WIKI_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
 _WIKI_HEADERS = {"Accept": "application/json", "User-Agent": "amc-notify/1.0 (drakelin18@gmail.com)"}
 
 
+def _synopsis_from_claude(title):
+    """Fallback: ask Claude Haiku for a one-sentence film synopsis."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return ""
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=100,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Give me a single sentence (max 160 characters) describing what the film "
+                    f'"{title}" is about. Reply with only that sentence, no quotes or preamble.'
+                ),
+            }],
+        )
+        text = next((b.text for b in response.content if b.type == "text"), "").strip()
+        if len(text) > 160:
+            text = text[:157] + "..."
+        return text
+    except Exception:
+        return ""
+
+
 def get_synopsis(title):
     clean = _FORMAT_STRIP_RE.sub("", title).strip()
     year = date.today().year
@@ -198,10 +226,10 @@ def get_synopsis(title):
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
-            return ""  # blocked or unexpected error from Wikipedia
+            return _synopsis_from_claude(title)  # blocked or unexpected error from Wikipedia
         except Exception:
             continue
-    return ""
+    return _synopsis_from_claude(title)
 
 
 # -- HTML rendering ------------------------------------------------------------
