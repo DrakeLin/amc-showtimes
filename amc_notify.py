@@ -178,19 +178,99 @@ def get_lb_data(title):
 
 # -- HTML rendering ------------------------------------------------------------
 _CSS = """
-  body  { font-family: Georgia, serif; max-width: 680px; margin: 2em auto; color: #222; }
-  .movie-block { margin: 1.6em 0 0; }
-  .movie-title  { font-size: 1.05em; font-weight: bold; margin: 0 0 .1em; }
-  .movie-rating { font-size: .9em; color: #e07000; font-weight: bold; }
-  .synopsis { font-size: .84em; color: #555; margin: .15em 0 .4em; font-style: italic; }
-  .na   { color: #bbb; }
-  table { border-collapse: collapse; width: 100%; font-size: .86em; margin-top: .4em; border: 1px solid #ccc; }
-  th    { text-align: left; border: 1px solid #ccc; padding: .25em .6em;
-          color: #888; font-weight: normal; background: #f5f5f5; }
-  td    { padding: .25em .6em; vertical-align: top; border: 1px solid #ccc; }
-  tr:nth-child(even) { background: #f9f9f9; }
-  .fmt  { font-size: .8em; color: #999; }
-  hr.sep { border: none; border-top: 1px solid #eee; margin: 1.2em 0 0; }
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500&display=swap');
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #fdf6f0;
+    color: #2d1f14;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 2em 1.2em;
+  }
+  .header {
+    margin-bottom: 1.6em;
+  }
+  .header .wordmark {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.5em;
+    font-weight: 600;
+    color: #c95c2e;
+    letter-spacing: -.02em;
+    margin: 0 0 .15em;
+  }
+  .header .wordmark span { color: #e87a4a; }
+  .header p {
+    font-size: .88em;
+    color: #8a6a58;
+    margin: 0;
+  }
+  .movie-block {
+    background: #fff8f3;
+    border: 1px solid #f0ddd0;
+    border-radius: 12px;
+    padding: 1.1em 1.2em 1em;
+    margin: 1em 0 0;
+  }
+  .movie-header {
+    display: flex;
+    align-items: baseline;
+    gap: .5em;
+    flex-wrap: wrap;
+    margin-bottom: .3em;
+  }
+  .movie-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #1e120a;
+    margin: 0;
+  }
+  .movie-rating {
+    display: inline-block;
+    background: #c95c2e;
+    color: #fff;
+    font-size: .72em;
+    font-weight: 500;
+    padding: .18em .55em;
+    border-radius: 20px;
+    letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  .na { color: #c8b0a4; font-size: .8em; }
+  .synopsis {
+    font-size: .82em;
+    color: #7a5a4a;
+    margin: 0 0 .7em;
+    line-height: 1.5;
+    font-style: italic;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: .82em;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #edddd4;
+  }
+  th {
+    text-align: left;
+    padding: .35em .7em;
+    background: #f5e8de;
+    color: #9a6f5e;
+    font-weight: 500;
+    font-size: .9em;
+    border-bottom: 1px solid #edddd4;
+  }
+  td {
+    padding: .32em .7em;
+    vertical-align: top;
+    border-bottom: 1px solid #f5ece5;
+    color: #3d2518;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #fdf3ed; }
+  .fmt { color: #b07060; font-size: .85em; }
+  .times { color: #1e120a; font-weight: 500; letter-spacing: .01em; }
 """
 
 
@@ -242,13 +322,16 @@ def render(digest):
 
     # Generate HTML version for email
     html_parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">',
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">',
         f"<style>{_CSS}</style></head><body>\n",
-        f"<p>{intro}</p>\n",
-        "<hr>\n",
+        "<div class='header'>"
+        "<p class='wordmark'>movi<span>.</span></p>"
+        f"<p>{intro}</p>"
+        "</div>\n",
     ]
 
-    for i, title in enumerate(sorted(movies, key=_sort_key)):
+    for title in sorted(movies, key=_sort_key):
         info = movies[title]
         rating = info["lb_rating"]
         rating_html = (
@@ -256,13 +339,13 @@ def render(digest):
             if rating != "N/A"
             else "<span class='na'>N/A</span>"
         )
-        if i > 0:
-            html_parts.append("<hr class='sep'>\n")
         synopsis = info.get("synopsis", "")
         synopsis_html = f"<p class='synopsis'>{synopsis}</p>\n" if synopsis else ""
         html_parts.append(
             f"<div class='movie-block'>"
-            f"<p class='movie-title'>{title}&ensp;{rating_html}</p>\n"
+            f"<div class='movie-header'>"
+            f"<p class='movie-title'>{title}</p>{rating_html}"
+            f"</div>\n"
             f"{synopsis_html}"
             "<table><tr>"
             "<th>Day</th><th>Theatre</th><th>Format</th><th>Showtimes</th>"
@@ -276,7 +359,7 @@ def render(digest):
                     f"<tr><td>{day_label}</td>"
                     f"<td>{theatre}</td>"
                     f"<td><span class='fmt'>{fmt}</span></td>"
-                    f"<td>{times_str}</td></tr>\n"
+                    f"<td class='times'>{times_str}</td></tr>\n"
                 )
         html_parts.append("</table></div>\n")
 
