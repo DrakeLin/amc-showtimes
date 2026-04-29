@@ -11,8 +11,6 @@ import urllib.request
 from datetime import date, timedelta
 from typing import Optional
 
-import anthropic
-
 # -- Configuration -------------------------------------------------------------
 THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
 
@@ -132,7 +130,8 @@ def lb_slug(title):
     return t
 
 
-def get_lb_rating(title):
+def get_lb_data(title):
+    """Fetch rating and synopsis from Letterboxd in a single request."""
     slug = lb_slug(title)
     year = date.today().year
     candidates = [
@@ -145,91 +144,36 @@ def get_lb_rating(title):
         try:
             time.sleep(0.3)
             html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
+
+            # Extract rating
+            rating = "N/A"
             m = _LB_RATING_RE.search(html)
             if m:
-                return m.group(1)
-            m = _LB_LD_RE.search(html)
+                rating = m.group(1)
+            else:
+                m = _LB_LD_RE.search(html)
+                if m:
+                    rating = m.group(1)
+
+            # Extract synopsis
+            synopsis = ""
+            m = re.search(r'<meta property="og:description" content="([^"]+)"', html)
             if m:
-                return m.group(1)
+                synopsis = m.group(1).strip()
+                if len(synopsis) > 20 and "rating" not in synopsis.lower():
+                    if len(synopsis) > 160:
+                        synopsis = synopsis[:157] + "..."
+
+            return rating, synopsis
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue
             raise
         except Exception:
             continue
-    return "N/A"
+    return "N/A", ""
 
 
-# -- Wikipedia synopsis --------------------------------------------------------
-_WIKI_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
-_WIKI_HEADERS = {"Accept": "application/json", "User-Agent": "amc-notify/1.0 (drakelin18@gmail.com)"}
-
-
-def _synopsis_from_claude(title):
-    """Fallback: ask Claude Haiku for a one-sentence film synopsis."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return ""
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=100,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Give me a single sentence (max 160 characters) describing what the film "
-                    f'"{title}" is about. Reply with only that sentence, no quotes or preamble.'
-                ),
-            }],
-        )
-        text = next((b.text for b in response.content if b.type == "text"), "").strip()
-        if len(text) > 160:
-            text = text[:157] + "..."
-        return text
-    except Exception:
-        return ""
-
-
-def get_synopsis(title):
-    clean = _FORMAT_STRIP_RE.sub("", title).strip()
-    year = date.today().year
-    candidates = [
-        clean,
-        f"{clean} ({year} film)",
-        f"{clean} ({year - 1} film)",
-        f"{clean} ({year - 2} film)",
-        clean + " (film)",
-        clean + " (film series)",
-    ]
-    for slug in candidates:
-        encoded = urllib.request.quote(slug.replace(" ", "_"))
-        try:
-            raw = _get(f"{_WIKI_BASE}/{encoded}", headers=_WIKI_HEADERS)
-            data = json.loads(raw)
-            # Skip disambiguation pages
-            if data.get("type") == "disambiguation":
-                continue
-            extract = data.get("extract", "").strip()
-            if not extract:
-                continue
-            # Skip articles that aren't about a film/movie
-            desc = (data.get("description") or "").lower()
-            cats = extract[:300].lower()
-            if not any(w in desc or w in cats for w in ("film", "movie", "directed")):
-                continue
-            # Return the first sentence, capped at 160 chars
-            first = extract.split(". ")[0]
-            if len(first) > 160:
-                first = first[:157] + "..."
-            return first + ("." if not first.endswith(".") else "")
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
-            return _synopsis_from_claude(title)  # blocked or unexpected error from Wikipedia
-        except Exception:
-            continue
-    return _synopsis_from_claude(title)
 
 
 # -- HTML rendering ------------------------------------------------------------
@@ -283,15 +227,47 @@ def render(digest):
 
     movies = _pivot(digest)
 
-    parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">',
-        f"<style>{_CSS}</style></head><body>\n",
-        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+    # Build markdown output
+    md_parts = [
+        f"# AMC SF Evening Showtimes — {date_labels}\n\n",
     ]
 
     def _sort_key(title):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
+
+    for title in sorted(movies, key=_sort_key):
+        info = movies[title]
+        rating = info["lb_rating"]
+        rating_str = f"{rating} ★" if rating != "N/A" else "N/A"
+
+        md_parts.append(f"## {title} {rating_str}\n\n")
+
+        synopsis = info.get("synopsis", "")
+        if synopsis:
+            md_parts.append(f"*{synopsis}*\n\n")
+
+        md_parts.append("| Day | Theatre | Format | Showtimes |\n")
+        md_parts.append("|-----|---------|--------|----------|\n")
+
+        for show_date in sorted(info["days"]):
+            day_label = show_date.strftime("%a %-m/%-d")
+            for theatre, fmt, times in sorted(info["days"][show_date]):
+                times_str = "  ".join(times)
+                md_parts.append(
+                    f"| {day_label} | {theatre} | {fmt} | {times_str} |\n"
+                )
+
+        md_parts.append("\n")
+
+    markdown = "".join(md_parts)
+
+    # Also generate HTML version for email
+    html_parts = [
+        '<!DOCTYPE html><html><head><meta charset="utf-8">',
+        f"<style>{_CSS}</style></head><body>\n",
+        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+    ]
 
     for i, title in enumerate(sorted(movies, key=_sort_key)):
         info = movies[title]
@@ -302,10 +278,10 @@ def render(digest):
             else "<span class='na'>N/A</span>"
         )
         if i > 0:
-            parts.append("<hr class='sep'>\n")
+            html_parts.append("<hr class='sep'>\n")
         synopsis = info.get("synopsis", "")
         synopsis_html = f"<p class='synopsis'>{synopsis}</p>\n" if synopsis else ""
-        parts.append(
+        html_parts.append(
             f"<div class='movie-block'>"
             f"<p class='movie-title'>{title}&ensp;{rating_html}</p>\n"
             f"{synopsis_html}"
@@ -317,16 +293,17 @@ def render(digest):
             day_label = show_date.strftime("%a %-m/%-d")
             for theatre, fmt, times in sorted(info["days"][show_date]):
                 times_str = "&nbsp;&nbsp;".join(times)
-                parts.append(
+                html_parts.append(
                     f"<tr><td>{day_label}</td>"
                     f"<td>{theatre}</td>"
                     f"<td><span class='fmt'>{fmt}</span></td>"
                     f"<td>{times_str}</td></tr>\n"
                 )
-        parts.append("</table></div>\n")
+        html_parts.append("</table></div>\n")
 
-    parts.append("</body></html>")
-    return "".join(parts), subject
+    html_parts.append("</body></html>")
+    html = "".join(html_parts)
+    return markdown, subject, html
 
 
 # -- Main ----------------------------------------------------------------------
@@ -368,23 +345,20 @@ def main():
                 if t_label not in movies[key]["times"]:
                     movies[key]["times"].append(t_label)
 
-            # Letterboxd ratings + Wikipedia synopsis -- deduplicated by title
+            # Letterboxd ratings + synopsis -- deduplicated by title
             seen_lb = {}
-            seen_synopsis = {}
             for (title, _fmt), mv in movies.items():
                 if title not in seen_lb:
                     print(f"  Letterboxd: {title}", file=sys.stderr)
-                    seen_lb[title] = get_lb_rating(title)
-                if title not in seen_synopsis:
-                    print(f"  Synopsis:   {title}", file=sys.stderr)
-                    seen_synopsis[title] = get_synopsis(title)
-                mv["lb_rating"] = seen_lb[title]
-                mv["synopsis"] = seen_synopsis[title]
+                    rating, synopsis = get_lb_data(title)
+                    seen_lb[title] = (rating, synopsis)
+                mv["lb_rating"] = seen_lb[title][0]
+                mv["synopsis"] = seen_lb[title][1]
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    html, subject = render(digest)
-    print(json.dumps({"subject": subject, "html": html}))
+    markdown, subject, html = render(digest)
+    print(json.dumps({"subject": subject, "markdown": markdown, "html": html}))
 
 
 if __name__ == "__main__":
