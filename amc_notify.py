@@ -176,22 +176,9 @@ def get_lb_data(title):
 
 
 
-# -- HTML rendering ------------------------------------------------------------
+# -- Rendering ----------------------------------------------------------------
 _THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
-
-_CSS = """<style>
-body{margin:0;padding:0;background:#fff;}
-.w{font-family:Arial,Helvetica,sans-serif;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;}
-.i{font-size:.88em;color:#8a6a58;margin:0 0 1.4em;}
-.c{background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;}
-.mh{margin-bottom:.5em;}
-.mt{font-family:Georgia,serif;font-size:1.1em;font-weight:600;color:#1e120a;margin:0;display:inline;}
-.rt{display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;}
-.na{color:#c8b0a4;font-size:.8em;margin-left:.5em;}
-.sy{font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;}
-.r{font-size:.82em;margin:.2em 0;color:#3d2518;}
-.r b{color:#1e120a;margin-right:.4em;}
-</style>"""
+_SEP = "─" * 52
 
 
 def _fmt_time(dt_str):
@@ -210,7 +197,6 @@ def _fmt_format(fmt):
 
 
 def _pivot(digest):
-    """Pivot digest[theatre][date][movie] -> movies[title]{rating, days{date: rows}}."""
     movies = {}
     for theatre, shows_by_date in digest.items():
         for show_date, show_list in shows_by_date.items():
@@ -225,6 +211,16 @@ def _pivot(digest):
     return movies
 
 
+def _day_parts(day_info):
+    parts = []
+    for theatre, fmt, times in sorted(day_info):
+        name = _THEATRE_SHORT.get(theatre, theatre)
+        f_str = _fmt_format(fmt)
+        label = f"{name} ({f_str})" if f_str else name
+        parts.append(f"{label}: {', '.join(times)}")
+    return " · ".join(parts)
+
+
 def render(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
     date_range_short = f"{all_dates[0].strftime('%-m/%-d')} - {all_dates[-1].strftime('%-m/%-d')}"
@@ -235,8 +231,8 @@ def render(digest):
         return f"{h % 12 or 12} {'pm' if h >= 12 else 'am'}"
 
     intro = (
-        f"Here are the movies, ordered by letterboxd rating, "
-        f"for {date_range_short} from {_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
+        f"Movies ordered by Letterboxd rating — {date_range_short}, "
+        f"{_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
     )
 
     movies = _pivot(digest)
@@ -245,41 +241,27 @@ def render(digest):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    html_parts = [
-        f'<html><head><meta charset="utf-8">{_CSS}</head><body>'
-        f'<div class="w"><p class="i">{intro}</p>',
-    ]
+    lines = [intro, ""]
 
     for title in sorted(movies, key=_sort_key):
         info = movies[title]
         rating = info["lb_rating"]
-        rating_html = (
-            f'<span class="rt">{rating} &#9733;</span>'
-            if rating != "N/A"
-            else '<span class="na">N/A</span>'
-        )
         synopsis = info.get("synopsis", "")
-        if len(synopsis) > 280:
-            synopsis = synopsis[:277] + "..."
-        synopsis_html = f'<p class="sy">{synopsis}</p>' if synopsis else ""
-        html_parts.append(
-            f'<div class="c"><div class="mh"><span class="mt">{title}</span>{rating_html}</div>'
-            f'{synopsis_html}'
-        )
-        for show_date in sorted(info["days"]):
-            day_label = show_date.strftime("%a %-m/%-d")
-            parts = []
-            for theatre, fmt, times in sorted(info["days"][show_date]):
-                name = _THEATRE_SHORT.get(theatre, theatre)
-                f_str = _fmt_format(fmt)
-                label = f"{name} ({f_str})" if f_str else name
-                parts.append(f"{label}: {', '.join(times)}")
-            html_parts.append(f'<p class="r"><b>{day_label}</b> {" · ".join(parts)}</p>')
-        html_parts.append("</div>")
+        if len(synopsis) > 200:
+            synopsis = synopsis[:197] + "..."
 
-    html_parts.append("</div></body></html>")
-    html = "".join(html_parts)
-    return subject, html
+        rating_str = f"  ★ {rating}" if rating != "N/A" else ""
+        lines.append(_SEP)
+        lines.append(f"{title}{rating_str}")
+        if synopsis:
+            lines.append(synopsis)
+        lines.append("")
+        for show_date in sorted(info["days"]):
+            lines.append(f"  {show_date.strftime('%a %-m/%-d'):<10} {_day_parts(info['days'][show_date])}")
+        lines.append("")
+
+    lines.append(_SEP)
+    return subject, "\n".join(lines)
 
 
 # -- Main ----------------------------------------------------------------------
@@ -333,10 +315,8 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    subject, html = render(digest)
-    print(subject)
-    with open('/tmp/email.html', 'w') as f:
-        f.write(html)
+    subject, text = render(digest)
+    print(json.dumps({"subject": subject, "text": text}))
 
 
 if __name__ == "__main__":
