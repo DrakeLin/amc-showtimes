@@ -290,14 +290,14 @@ def render(digest):
             for theatre, fmt, times in sorted(info["days"][show_date]):
                 rows.append((day_label, theatre, fmt, times))
         for i, (day_label, theatre, fmt, times) in enumerate(rows):
-            first_time = times[0] if times else ""
+            times_str = "&nbsp;&nbsp;".join(times)
             is_even = (i % 2 == 1)
             td_class = _S_TD_ALT if is_even else _S_TD
             times_class = f'{td_class} {_S_TIMES}'
             html_parts.append(
                 f'<tr>'
                 f'<td class="{td_class}">{day_label}</td>'
-                f'<td class="{times_class}">{first_time}</td>'
+                f'<td class="{times_class}">{times_str}</td>'
                 f'<td class="{td_class}"><span style="{_S_FMT}">{fmt}</span></td>'
                 f'<td class="{td_class}">{theatre}</td>'
                 f'</tr>\n'
