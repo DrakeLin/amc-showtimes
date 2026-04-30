@@ -48,37 +48,38 @@ THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
 7. **Prompt**:
 
 ```
-Run: python3 amc_notify.py > /tmp/result.json 2> /tmp/err.log
-If exit code is non-zero, summarize /tmp/err.log and stop.
+Run:
+python3 amc_notify.py 2>/tmp/err.log
 
-Read /tmp/result.json. Parse as JSON with fields "subject" and "html".
+If the exit code is non-zero, print the contents of /tmp/err.log and stop.
 
-Use the Gmail connector to create a draft email:
-  to: drakelin18@gmail.com
-  subject: (the subject field from the JSON)
-  htmlBody: (the html field from the JSON)
+Read /tmp/email.html to get the HTML body.
 
-Do not send the draft. Just create it.
+Capture the subject line from the script output.
+
+Use the Gmail connector to create a draft:
+To: drakelin18@gmail.com
+subject: [the printed subject line]
+htmlBody: [the HTML from /tmp/email.html]
 ```
 
 ## Local development
 
 ```bash
 cd ~/Documents/test/amc-showtimes
-AMC_VENDOR_KEY="your-key" python3 amc_notify.py > /tmp/result.json 2>/tmp/err.log
+AMC_VENDOR_KEY="your-key" python3 amc_notify.py 2>/tmp/err.log
 echo "Exit: $?"
 cat /tmp/err.log
 ```
 
-Sanity-check the output:
+Check the subject and HTML:
 ```bash
-python3 -c "import json; d=json.load(open('/tmp/result.json')); print(d['subject']); print(len(d['html']), 'chars')"
+cat /tmp/email.html | wc -c  # HTML size in bytes
 ```
 
 Preview HTML in a browser:
 ```bash
-python3 -c "import json; print(json.load(open('/tmp/result.json'))['html'])" > /tmp/preview.html
-open /tmp/preview.html
+open /tmp/email.html
 ```
 
 ## How the script works
@@ -95,7 +96,7 @@ open /tmp/preview.html
 
 **HTTP retries** — `_get()` retries on 5xx, 429, and network errors with exponential backoff. 4xx errors (other than 429) raise immediately.
 
-**Output** — `main()` prints a single JSON object `{subject, html}` to stdout. All progress logging goes to stderr.
+**Output** — `main()` prints the email subject to stdout and writes the HTML email body to `/tmp/email.html`. All progress logging goes to stderr.
 
 ## Failure modes
 
