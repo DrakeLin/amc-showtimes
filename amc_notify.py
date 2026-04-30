@@ -178,7 +178,7 @@ def get_lb_data(title):
 
 # -- HTML rendering ------------------------------------------------------------
 # Inline style constants for email compatibility (Gmail strips <style> blocks)
-_S_WRAP   = 'font-family:Arial,Helvetica,sans-serif;background-color:#fdf6f0;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;'
+_S_WRAP   = 'font-family:Arial,Helvetica,sans-serif;background-color:#ffffff;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;'
 _S_INTRO  = 'font-size:.88em;color:#8a6a58;margin:0 0 1.4em;'
 _S_BLOCK  = 'background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;'
 _S_MHDR   = 'margin-bottom:.5em;'
@@ -255,8 +255,8 @@ def render(digest):
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f'{_CSS_CLASSES}'
-        '</head><body style="margin:0;padding:0;background-color:#fdf6f0;">\n',
-        f'<div style="{_S_WRAP}">',
+        '</head><body style="margin:0;padding:0;background-color:#ffffff;">\n',
+        f'<div style="{_S_WRAP}">'
         f'<p style="{_S_INTRO}">{intro}</p>\n',
     ]
 
@@ -279,9 +279,9 @@ def render(digest):
             f'<table style="{_S_TABLE}">'
             f'<tr>'
             f'<th class="th1">Day</th>'
-            f'<th class="th1">Theatre</th>'
+            f'<th class="th1">Showtime</th>'
             f'<th class="th1">Format</th>'
-            f'<th class="th1">Showtimes</th>'
+            f'<th class="th1">Theatre</th>'
             f'</tr>\n'
         )
         rows = []
@@ -290,16 +290,16 @@ def render(digest):
             for theatre, fmt, times in sorted(info["days"][show_date]):
                 rows.append((day_label, theatre, fmt, times))
         for i, (day_label, theatre, fmt, times) in enumerate(rows):
-            times_str = "&nbsp;&nbsp;".join(times)
+            first_time = times[0] if times else ""
             is_even = (i % 2 == 1)
             td_class = _S_TD_ALT if is_even else _S_TD
             times_class = f'{td_class} {_S_TIMES}'
             html_parts.append(
                 f'<tr>'
                 f'<td class="{td_class}">{day_label}</td>'
-                f'<td class="{td_class}">{theatre}</td>'
+                f'<td class="{times_class}">{first_time}</td>'
                 f'<td class="{td_class}"><span style="{_S_FMT}">{fmt}</span></td>'
-                f'<td class="{times_class}">{times_str}</td>'
+                f'<td class="{td_class}">{theatre}</td>'
                 f'</tr>\n'
             )
         html_parts.append("</table></div>\n")
