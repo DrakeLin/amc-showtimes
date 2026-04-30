@@ -176,32 +176,9 @@ def get_lb_data(title):
 
 
 
-# -- HTML rendering ------------------------------------------------------------
-# Inline style constants for email compatibility (Gmail strips <style> blocks)
-_S_WRAP   = 'font-family:Arial,Helvetica,sans-serif;background-color:#ffffff;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;'
-_S_INTRO  = 'font-size:.88em;color:#8a6a58;margin:0 0 1.4em;'
-_S_BLOCK  = 'background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;'
-_S_MHDR   = 'margin-bottom:.5em;'
-_S_TITLE  = 'font-family:Georgia,serif;font-size:1.1em;font-weight:600;color:#1e120a;margin:0;display:inline;'
-_S_RATING = 'display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;'
-_S_NA     = 'color:#c8b0a4;font-size:.8em;margin-left:.5em;'
-_S_SYN    = 'font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;'
-_S_TABLE  = 'border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;'
-_S_TH     = 'text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;'
-_S_TD     = 'tc1'
-_S_TD_ALT = 'tc1-alt'
-_S_TD_LST = 'tc1'
-_S_TD_LST_ALT = 'tc1-alt'
-_S_FMT    = 'color:#b07060;font-size:.85em;'
-_S_TIMES  = 'tc1-times'
-
-# CSS for optimized HTML (to be embedded in <style> tag)
-_CSS_CLASSES = """<style>
-.tc1{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;}
-.tc1-alt{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background-color:#fdf3ed;}
-.th1{text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;}
-.tc1-times{color:#1e120a;font-weight:500;letter-spacing:.01em;}
-</style>"""
+# -- Rendering ----------------------------------------------------------------
+_THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
+_SEP = "─" * 52
 
 
 def _fmt_time(dt_str):
@@ -213,8 +190,13 @@ def _fmt_time(dt_str):
         return dt_str[11:16]
 
 
+def _fmt_format(fmt):
+    if fmt == "Standard":
+        return ""
+    return fmt.replace(" at AMC", "").replace("Cinema ", "")
+
+
 def _pivot(digest):
-    """Pivot digest[theatre][date][movie] -> movies[title]{rating, days{date: rows}}."""
     movies = {}
     for theatre, shows_by_date in digest.items():
         for show_date, show_list in shows_by_date.items():
@@ -229,9 +211,18 @@ def _pivot(digest):
     return movies
 
 
+def _day_parts(day_info):
+    parts = []
+    for theatre, fmt, times in sorted(day_info):
+        name = _THEATRE_SHORT.get(theatre, theatre)
+        f_str = _fmt_format(fmt)
+        label = f"{name} ({f_str})" if f_str else name
+        parts.append(f"{label}: {', '.join(times)}")
+    return " · ".join(parts)
+
+
 def render(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
-    date_labels = " / ".join(d.strftime("%-m/%-d") for d in all_dates)
     date_range_short = f"{all_dates[0].strftime('%-m/%-d')} - {all_dates[-1].strftime('%-m/%-d')}"
     date_range = f"{all_dates[0].strftime('%A %-m/%-d')} - {all_dates[-1].strftime('%A %-m/%-d')}"
     subject = f"AMC SF Showtimes - {date_range}"
@@ -240,8 +231,8 @@ def render(digest):
         return f"{h % 12 or 12} {'pm' if h >= 12 else 'am'}"
 
     intro = (
-        f"Here are the movies, ordered by letterboxd rating, "
-        f"for {date_range_short} from {_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
+        f"Movies ordered by Letterboxd rating — {date_range_short}, "
+        f"{_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
     )
 
     movies = _pivot(digest)
@@ -250,63 +241,27 @@ def render(digest):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    # Generate HTML version for email (with CSS classes for optimization)
-    html_parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'{_CSS_CLASSES}'
-        '</head><body style="margin:0;padding:0;background-color:#ffffff;">\n',
-        f'<div style="{_S_WRAP}">'
-        f'<p style="{_S_INTRO}">{intro}</p>\n',
-    ]
+    lines = [intro, ""]
 
     for title in sorted(movies, key=_sort_key):
         info = movies[title]
         rating = info["lb_rating"]
-        rating_html = (
-            f'<span style="{_S_RATING}">{rating} &#9733;</span>'
-            if rating != "N/A"
-            else f'<span style="{_S_NA}">N/A</span>'
-        )
         synopsis = info.get("synopsis", "")
-        synopsis_html = f'<p style="{_S_SYN}">{synopsis}</p>\n' if synopsis else ""
-        html_parts.append(
-            f'<div style="{_S_BLOCK}">'
-            f'<div style="{_S_MHDR}">'
-            f'<span style="{_S_TITLE}">{title}</span>{rating_html}'
-            f'</div>\n'
-            f'{synopsis_html}'
-            f'<table style="{_S_TABLE}">'
-            f'<tr>'
-            f'<th class="th1">Day</th>'
-            f'<th class="th1">Showtime</th>'
-            f'<th class="th1">Format</th>'
-            f'<th class="th1">Theatre</th>'
-            f'</tr>\n'
-        )
-        rows = []
-        for show_date in sorted(info["days"]):
-            day_label = show_date.strftime("%a %-m/%-d")
-            for theatre, fmt, times in sorted(info["days"][show_date]):
-                rows.append((day_label, theatre, fmt, times))
-        for i, (day_label, theatre, fmt, times) in enumerate(rows):
-            times_str = "&nbsp;&nbsp;".join(times)
-            is_even = (i % 2 == 1)
-            td_class = _S_TD_ALT if is_even else _S_TD
-            times_class = f'{td_class} {_S_TIMES}'
-            html_parts.append(
-                f'<tr>'
-                f'<td class="{td_class}">{day_label}</td>'
-                f'<td class="{times_class}">{times_str}</td>'
-                f'<td class="{td_class}"><span style="{_S_FMT}">{fmt}</span></td>'
-                f'<td class="{td_class}">{theatre}</td>'
-                f'</tr>\n'
-            )
-        html_parts.append("</table></div>\n")
+        if len(synopsis) > 200:
+            synopsis = synopsis[:197] + "..."
 
-    html_parts.append("</div></body></html>")
-    html = "".join(html_parts)
-    return subject, html
+        rating_str = f"  ★ {rating}" if rating != "N/A" else ""
+        lines.append(_SEP)
+        lines.append(f"{title}{rating_str}")
+        if synopsis:
+            lines.append(synopsis)
+        lines.append("")
+        for show_date in sorted(info["days"]):
+            lines.append(f"  {show_date.strftime('%a %-m/%-d'):<10} {_day_parts(info['days'][show_date])}")
+        lines.append("")
+
+    lines.append(_SEP)
+    return subject, "\n".join(lines)
 
 
 # -- Main ----------------------------------------------------------------------
@@ -360,10 +315,8 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    subject, html = render(digest)
-    print(subject)
-    with open('/tmp/email.html', 'w') as f:
-        f.write(html)
+    subject, text = render(digest)
+    print(json.dumps({"subject": subject, "text": text}))
 
 
 if __name__ == "__main__":
