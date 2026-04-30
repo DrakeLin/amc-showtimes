@@ -8,7 +8,7 @@ Every week the routine:
 1. Hits the AMC Theatres API for showtimes at both SF locations on the next Tue/Wed/Thu
 2. Filters to evening showtimes (4–9 PM by default)
 3. Looks up each movie's Letterboxd rating
-4. Renders an HTML digest grouped by theatre and day
+4. Renders a plain-text digest sorted by Letterboxd rating
 5. Creates a Gmail draft to drakelin18@gmail.com — nothing is sent automatically
 
 ## Repository layout
@@ -53,14 +53,14 @@ python3 amc_notify.py 2>/tmp/err.log
 
 If the exit code is non-zero, print the contents of /tmp/err.log and stop.
 
-Read /tmp/email.html to get the HTML body.
-
-Capture the subject line from the script output.
+Parse the JSON printed to stdout. It has two keys:
+- "subject": the email subject line
+- "text": the plain-text email body
 
 Use the Gmail connector to create a draft:
 To: drakelin18@gmail.com
-subject: [the printed subject line]
-htmlBody: [the HTML from /tmp/email.html]
+subject: [the "subject" value]
+body: [the "text" value]
 ```
 
 ## Local development
@@ -72,14 +72,9 @@ echo "Exit: $?"
 cat /tmp/err.log
 ```
 
-Check the subject and HTML:
+Check the output:
 ```bash
-cat /tmp/email.html | wc -c  # HTML size in bytes
-```
-
-Preview HTML in a browser:
-```bash
-open /tmp/email.html
+python3 amc_notify.py 2>/dev/null | python3 -m json.tool
 ```
 
 ## How the script works
@@ -96,7 +91,7 @@ open /tmp/email.html
 
 **HTTP retries** — `_get()` retries on 5xx, 429, and network errors with exponential backoff. 4xx errors (other than 429) raise immediately.
 
-**Output** — `main()` prints the email subject to stdout and writes the HTML email body to `/tmp/email.html`. All progress logging goes to stderr.
+**Output** — `main()` prints a single JSON line to stdout: `{"subject": "...", "text": "..."}`. All progress logging goes to stderr.
 
 ## Failure modes
 
