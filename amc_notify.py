@@ -188,12 +188,20 @@ _S_NA     = 'color:#c8b0a4;font-size:.8em;margin-left:.5em;'
 _S_SYN    = 'font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;'
 _S_TABLE  = 'border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;'
 _S_TH     = 'text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;'
-_S_TD     = 'padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;'
-_S_TD_ALT = 'padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background-color:#fdf3ed;'
-_S_TD_LST = 'padding:.32em .7em;vertical-align:top;color:#3d2518;'
-_S_TD_LST_ALT = 'padding:.32em .7em;vertical-align:top;color:#3d2518;background-color:#fdf3ed;'
+_S_TD     = 'tc1'
+_S_TD_ALT = 'tc1-alt'
+_S_TD_LST = 'tc1'
+_S_TD_LST_ALT = 'tc1-alt'
 _S_FMT    = 'color:#b07060;font-size:.85em;'
-_S_TIMES  = 'color:#1e120a;font-weight:500;letter-spacing:.01em;'
+_S_TIMES  = 'tc1-times'
+
+# CSS for optimized HTML (to be embedded in <style> tag)
+_CSS_CLASSES = """<style>
+.tc1{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;}
+.tc1-alt{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background-color:#fdf3ed;}
+.th1{text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;}
+.tc1-times{color:#1e120a;font-weight:500;letter-spacing:.01em;}
+</style>"""
 
 
 def _fmt_time(dt_str):
@@ -242,10 +250,11 @@ def render(digest):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    # Generate HTML version for email (inline styles for Gmail compatibility)
+    # Generate HTML version for email (with CSS classes for optimization)
     html_parts = [
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'{_CSS_CLASSES}'
         '</head><body style="margin:0;padding:0;background-color:#fdf6f0;">\n',
         f'<div style="{_S_WRAP}">',
         f'<p style="{_S_INTRO}">{intro}</p>\n',
@@ -269,10 +278,10 @@ def render(digest):
             f'{synopsis_html}'
             f'<table style="{_S_TABLE}">'
             f'<tr>'
-            f'<th style="{_S_TH}">Day</th>'
-            f'<th style="{_S_TH}">Theatre</th>'
-            f'<th style="{_S_TH}">Format</th>'
-            f'<th style="{_S_TH}">Showtimes</th>'
+            f'<th class="th1">Day</th>'
+            f'<th class="th1">Theatre</th>'
+            f'<th class="th1">Format</th>'
+            f'<th class="th1">Showtimes</th>'
             f'</tr>\n'
         )
         rows = []
@@ -282,18 +291,15 @@ def render(digest):
                 rows.append((day_label, theatre, fmt, times))
         for i, (day_label, theatre, fmt, times) in enumerate(rows):
             times_str = "&nbsp;&nbsp;".join(times)
-            is_last = (i == len(rows) - 1)
             is_even = (i % 2 == 1)
-            if is_last:
-                td = _S_TD_LST_ALT if is_even else _S_TD_LST
-            else:
-                td = _S_TD_ALT if is_even else _S_TD
+            td_class = _S_TD_ALT if is_even else _S_TD
+            times_class = f'{td_class} {_S_TIMES}'
             html_parts.append(
                 f'<tr>'
-                f'<td style="{td}">{day_label}</td>'
-                f'<td style="{td}">{theatre}</td>'
-                f'<td style="{td}"><span style="{_S_FMT}">{fmt}</span></td>'
-                f'<td style="{td}{_S_TIMES}">{times_str}</td>'
+                f'<td class="{td_class}">{day_label}</td>'
+                f'<td class="{td_class}">{theatre}</td>'
+                f'<td class="{td_class}"><span style="{_S_FMT}">{fmt}</span></td>'
+                f'<td class="{times_class}">{times_str}</td>'
                 f'</tr>\n'
             )
         html_parts.append("</table></div>\n")
