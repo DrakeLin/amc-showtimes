@@ -361,7 +361,9 @@ def main():
             digest[theatre_name][show_date] = list(movies.values())
 
     subject, html = render(digest)
-    print(json.dumps({"subject": subject, "html": html}))
+    print(subject)
+    with open('/tmp/email.html', 'w') as f:
+        f.write(html)
 
 
 if __name__ == "__main__":
