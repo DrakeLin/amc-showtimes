@@ -177,101 +177,23 @@ def get_lb_data(title):
 
 
 # -- HTML rendering ------------------------------------------------------------
-_CSS = """
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500&display=swap');
-  body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background: #fdf6f0;
-    color: #2d1f14;
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 2em 1.2em;
-  }
-  .header {
-    margin-bottom: 1.6em;
-  }
-  .header .wordmark {
-    font-family: 'Fraunces', Georgia, serif;
-    font-size: 1.5em;
-    font-weight: 600;
-    color: #c95c2e;
-    letter-spacing: -.02em;
-    margin: 0 0 .15em;
-  }
-  .header .wordmark span { color: #e87a4a; }
-  .header p {
-    font-size: .88em;
-    color: #8a6a58;
-    margin: 0;
-  }
-  .movie-block {
-    background: #fff8f3;
-    border: 1px solid #f0ddd0;
-    border-radius: 12px;
-    padding: 1.1em 1.2em 1em;
-    margin: 1em 0 0;
-  }
-  .movie-header {
-    display: flex;
-    align-items: baseline;
-    gap: .5em;
-    flex-wrap: wrap;
-    margin-bottom: .3em;
-  }
-  .movie-title {
-    font-family: 'Fraunces', Georgia, serif;
-    font-size: 1.1em;
-    font-weight: 600;
-    color: #1e120a;
-    margin: 0;
-  }
-  .movie-rating {
-    display: inline-block;
-    background: #c95c2e;
-    color: #fff;
-    font-size: .72em;
-    font-weight: 500;
-    padding: .18em .55em;
-    border-radius: 20px;
-    letter-spacing: .02em;
-    white-space: nowrap;
-  }
-  .na { color: #c8b0a4; font-size: .8em; }
-  .synopsis {
-    font-size: .82em;
-    color: #7a5a4a;
-    margin: 0 0 .7em;
-    line-height: 1.5;
-    font-style: italic;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: .82em;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid #edddd4;
-  }
-  th {
-    text-align: left;
-    padding: .35em .7em;
-    background: #f5e8de;
-    color: #9a6f5e;
-    font-weight: 500;
-    font-size: .9em;
-    border-bottom: 1px solid #edddd4;
-  }
-  td {
-    padding: .32em .7em;
-    vertical-align: top;
-    border-bottom: 1px solid #f5ece5;
-    color: #3d2518;
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:nth-child(even) td { background: #fdf3ed; }
-  .fmt { color: #b07060; font-size: .85em; }
-  .times { color: #1e120a; font-weight: 500; letter-spacing: .01em; }
-"""
+# Inline style constants for email compatibility (Gmail strips <style> blocks)
+_S_WRAP   = 'font-family:Arial,Helvetica,sans-serif;background-color:#fdf6f0;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;'
+_S_INTRO  = 'font-size:.88em;color:#8a6a58;margin:0 0 1.4em;'
+_S_BLOCK  = 'background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;'
+_S_MHDR   = 'margin-bottom:.5em;'
+_S_TITLE  = 'font-family:Georgia,serif;font-size:1.1em;font-weight:600;color:#1e120a;margin:0;display:inline;'
+_S_RATING = 'display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;'
+_S_NA     = 'color:#c8b0a4;font-size:.8em;margin-left:.5em;'
+_S_SYN    = 'font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;'
+_S_TABLE  = 'border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;'
+_S_TH     = 'text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;'
+_S_TD     = 'padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;'
+_S_TD_ALT = 'padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background-color:#fdf3ed;'
+_S_TD_LST = 'padding:.32em .7em;vertical-align:top;color:#3d2518;'
+_S_TD_LST_ALT = 'padding:.32em .7em;vertical-align:top;color:#3d2518;background-color:#fdf3ed;'
+_S_FMT    = 'color:#b07060;font-size:.85em;'
+_S_TIMES  = 'color:#1e120a;font-weight:500;letter-spacing:.01em;'
 
 
 def _fmt_time(dt_str):
@@ -320,50 +242,63 @@ def render(digest):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    # Generate HTML version for email
+    # Generate HTML version for email (inline styles for Gmail compatibility)
     html_parts = [
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        f"<style>{_CSS}</style></head><body>\n",
-        "<div class='header'>"
-        "<p class='wordmark'>movi<span>.</span></p>"
-        f"<p>{intro}</p>"
-        "</div>\n",
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '</head><body style="margin:0;padding:0;background-color:#fdf6f0;">\n',
+        f'<div style="{_S_WRAP}">',
+        f'<p style="{_S_INTRO}">{intro}</p>\n',
     ]
 
     for title in sorted(movies, key=_sort_key):
         info = movies[title]
         rating = info["lb_rating"]
         rating_html = (
-            f"<span class='movie-rating'>{rating} &#9733;</span>"
+            f'<span style="{_S_RATING}">{rating} &#9733;</span>'
             if rating != "N/A"
-            else "<span class='na'>N/A</span>"
+            else f'<span style="{_S_NA}">N/A</span>'
         )
         synopsis = info.get("synopsis", "")
-        synopsis_html = f"<p class='synopsis'>{synopsis}</p>\n" if synopsis else ""
+        synopsis_html = f'<p style="{_S_SYN}">{synopsis}</p>\n' if synopsis else ""
         html_parts.append(
-            f"<div class='movie-block'>"
-            f"<div class='movie-header'>"
-            f"<p class='movie-title'>{title}</p>{rating_html}"
-            f"</div>\n"
-            f"{synopsis_html}"
-            "<table><tr>"
-            "<th>Day</th><th>Theatre</th><th>Format</th><th>Showtimes</th>"
-            "</tr>\n"
+            f'<div style="{_S_BLOCK}">'
+            f'<div style="{_S_MHDR}">'
+            f'<span style="{_S_TITLE}">{title}</span>{rating_html}'
+            f'</div>\n'
+            f'{synopsis_html}'
+            f'<table style="{_S_TABLE}">'
+            f'<tr>'
+            f'<th style="{_S_TH}">Day</th>'
+            f'<th style="{_S_TH}">Theatre</th>'
+            f'<th style="{_S_TH}">Format</th>'
+            f'<th style="{_S_TH}">Showtimes</th>'
+            f'</tr>\n'
         )
+        rows = []
         for show_date in sorted(info["days"]):
             day_label = show_date.strftime("%a %-m/%-d")
             for theatre, fmt, times in sorted(info["days"][show_date]):
-                times_str = "&nbsp;&nbsp;".join(times)
-                html_parts.append(
-                    f"<tr><td>{day_label}</td>"
-                    f"<td>{theatre}</td>"
-                    f"<td><span class='fmt'>{fmt}</span></td>"
-                    f"<td class='times'>{times_str}</td></tr>\n"
-                )
+                rows.append((day_label, theatre, fmt, times))
+        for i, (day_label, theatre, fmt, times) in enumerate(rows):
+            times_str = "&nbsp;&nbsp;".join(times)
+            is_last = (i == len(rows) - 1)
+            is_even = (i % 2 == 1)
+            if is_last:
+                td = _S_TD_LST_ALT if is_even else _S_TD_LST
+            else:
+                td = _S_TD_ALT if is_even else _S_TD
+            html_parts.append(
+                f'<tr>'
+                f'<td style="{td}">{day_label}</td>'
+                f'<td style="{td}">{theatre}</td>'
+                f'<td style="{td}"><span style="{_S_FMT}">{fmt}</span></td>'
+                f'<td style="{td}{_S_TIMES}">{times_str}</td>'
+                f'</tr>\n'
+            )
         html_parts.append("</table></div>\n")
 
-    html_parts.append("</body></html>")
+    html_parts.append("</div></body></html>")
     html = "".join(html_parts)
     return subject, html
 
