@@ -177,6 +177,8 @@ def get_lb_data(title):
 
 
 # -- HTML rendering ------------------------------------------------------------
+_THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
+
 _CSS = """<style>
 body{margin:0;padding:0;background:#fff;}
 .w{font-family:Arial,Helvetica,sans-serif;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;}
@@ -187,23 +189,24 @@ body{margin:0;padding:0;background:#fff;}
 .rt{display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;}
 .na{color:#c8b0a4;font-size:.8em;margin-left:.5em;}
 .sy{font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;}
-.b{border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;}
-.h{text-align:left;padding:.35em .7em;background:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;}
-.d{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;}
-.a{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background:#fdf3ed;}
-.tm{color:#1e120a;font-weight:500;letter-spacing:.01em;}
-.fm{color:#b07060;font-size:.85em;}
+.r{font-size:.82em;margin:.2em 0;color:#3d2518;}
+.r b{color:#1e120a;margin-right:.4em;}
 </style>"""
 
 
 def _fmt_time(dt_str):
     try:
         h, m = int(dt_str[11:13]), int(dt_str[14:16])
-        s = "p" if h >= 12 else "a"
-        h12 = h % 12 or 12
-        return f"{h12}:{m:02d}{s}" if m else f"{h12}{s}"
+        ampm = "PM" if h >= 12 else "AM"
+        return f"{h % 12 or 12}:{m:02d} {ampm}"
     except Exception:
         return dt_str[11:16]
+
+
+def _fmt_format(fmt):
+    if fmt == "Standard":
+        return ""
+    return fmt.replace(" at AMC", "").replace("Cinema ", "")
 
 
 def _pivot(digest):
@@ -262,25 +265,17 @@ def render(digest):
         html_parts.append(
             f'<div class="c"><div class="mh"><span class="mt">{title}</span>{rating_html}</div>'
             f'{synopsis_html}'
-            f'<table class="b"><tr>'
-            f'<th class="h">Day</th><th class="h">Showtime</th>'
-            f'<th class="h">Format</th><th class="h">Theatre</th></tr>'
         )
-        rows = []
         for show_date in sorted(info["days"]):
             day_label = show_date.strftime("%a %-m/%-d")
+            parts = []
             for theatre, fmt, times in sorted(info["days"][show_date]):
-                rows.append((day_label, theatre, fmt, times))
-        for i, (day_label, theatre, fmt, times) in enumerate(rows):
-            times_str = ", ".join(times)
-            c = "a" if i % 2 else "d"
-            html_parts.append(
-                f'<tr><td class="{c}">{day_label}</td>'
-                f'<td class="{c} tm">{times_str}</td>'
-                f'<td class="{c} fm">{fmt}</td>'
-                f'<td class="{c}">{theatre}</td></tr>'
-            )
-        html_parts.append("</table></div>")
+                name = _THEATRE_SHORT.get(theatre, theatre)
+                f_str = _fmt_format(fmt)
+                label = f"{name} ({f_str})" if f_str else name
+                parts.append(f"{label}: {', '.join(times)}")
+            html_parts.append(f'<p class="r"><b>{day_label}</b> {" · ".join(parts)}</p>')
+        html_parts.append("</div>")
 
     html_parts.append("</div></body></html>")
     html = "".join(html_parts)
