@@ -177,30 +177,22 @@ def get_lb_data(title):
 
 
 # -- HTML rendering ------------------------------------------------------------
-# Inline style constants for email compatibility (Gmail strips <style> blocks)
-_S_WRAP   = 'font-family:Arial,Helvetica,sans-serif;background-color:#ffffff;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;'
-_S_INTRO  = 'font-size:.88em;color:#8a6a58;margin:0 0 1.4em;'
-_S_BLOCK  = 'background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;'
-_S_MHDR   = 'margin-bottom:.5em;'
-_S_TITLE  = 'font-family:Georgia,serif;font-size:1.1em;font-weight:600;color:#1e120a;margin:0;display:inline;'
-_S_RATING = 'display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;'
-_S_NA     = 'color:#c8b0a4;font-size:.8em;margin-left:.5em;'
-_S_SYN    = 'font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;'
-_S_TABLE  = 'border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;'
-_S_TH     = 'text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;'
-_S_TD     = 'tc1'
-_S_TD_ALT = 'tc1-alt'
-_S_TD_LST = 'tc1'
-_S_TD_LST_ALT = 'tc1-alt'
-_S_FMT    = 'color:#b07060;font-size:.85em;'
-_S_TIMES  = 'tc1-times'
-
-# CSS for optimized HTML (to be embedded in <style> tag)
-_CSS_CLASSES = """<style>
-.tc1{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;}
-.tc1-alt{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background-color:#fdf3ed;}
-.th1{text-align:left;padding:.35em .7em;background-color:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;}
-.tc1-times{color:#1e120a;font-weight:500;letter-spacing:.01em;}
+_CSS = """<style>
+body{margin:0;padding:0;background:#fff;}
+.w{font-family:Arial,Helvetica,sans-serif;color:#2d1f14;max-width:640px;margin:0 auto;padding:2em 1.2em;}
+.intro{font-size:.88em;color:#8a6a58;margin:0 0 1.4em;}
+.card{background:#fff8f3;border:1px solid #f0ddd0;border-radius:12px;padding:1.1em 1.2em 1em;margin:1em 0 0;}
+.mh{margin-bottom:.5em;}
+.mt{font-family:Georgia,serif;font-size:1.1em;font-weight:600;color:#1e120a;margin:0;display:inline;}
+.rt{display:inline-block;background:#c95c2e;color:#fff;font-size:.72em;font-weight:500;padding:.18em .55em;border-radius:20px;letter-spacing:.02em;white-space:nowrap;margin-left:.5em;vertical-align:middle;}
+.na{color:#c8b0a4;font-size:.8em;margin-left:.5em;}
+.sy{font-size:.82em;color:#7a5a4a;margin:0 0 .7em;line-height:1.5;font-style:italic;}
+.tbl{border-collapse:collapse;width:100%;font-size:.82em;border:1px solid #edddd4;}
+.th1{text-align:left;padding:.35em .7em;background:#f5e8de;color:#9a6f5e;font-weight:500;font-size:.9em;border-bottom:1px solid #edddd4;}
+.td{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;}
+.tda{padding:.32em .7em;vertical-align:top;border-bottom:1px solid #f5ece5;color:#3d2518;background:#fdf3ed;}
+.tm{color:#1e120a;font-weight:500;letter-spacing:.01em;}
+.fm{color:#b07060;font-size:.85em;}
 </style>"""
 
 
@@ -231,7 +223,6 @@ def _pivot(digest):
 
 def render(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
-    date_labels = " / ".join(d.strftime("%-m/%-d") for d in all_dates)
     date_range_short = f"{all_dates[0].strftime('%-m/%-d')} - {all_dates[-1].strftime('%-m/%-d')}"
     date_range = f"{all_dates[0].strftime('%A %-m/%-d')} - {all_dates[-1].strftime('%A %-m/%-d')}"
     subject = f"AMC SF Showtimes - {date_range}"
@@ -250,39 +241,29 @@ def render(digest):
         r = movies[title]["lb_rating"]
         return (-float(r) if r != "N/A" else 0.0, title)
 
-    # Generate HTML version for email (with CSS classes for optimization)
     html_parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'{_CSS_CLASSES}'
-        '</head><body style="margin:0;padding:0;background-color:#ffffff;">\n',
-        f'<div style="{_S_WRAP}">'
-        f'<p style="{_S_INTRO}">{intro}</p>\n',
+        f'<html><head><meta charset="utf-8">{_CSS}</head><body>'
+        f'<div class="w"><p class="intro">{intro}</p>',
     ]
 
     for title in sorted(movies, key=_sort_key):
         info = movies[title]
         rating = info["lb_rating"]
         rating_html = (
-            f'<span style="{_S_RATING}">{rating} &#9733;</span>'
+            f'<span class="rt">{rating} &#9733;</span>'
             if rating != "N/A"
-            else f'<span style="{_S_NA}">N/A</span>'
+            else '<span class="na">N/A</span>'
         )
         synopsis = info.get("synopsis", "")
-        synopsis_html = f'<p style="{_S_SYN}">{synopsis}</p>\n' if synopsis else ""
+        if len(synopsis) > 280:
+            synopsis = synopsis[:277] + "..."
+        synopsis_html = f'<p class="sy">{synopsis}</p>' if synopsis else ""
         html_parts.append(
-            f'<div style="{_S_BLOCK}">'
-            f'<div style="{_S_MHDR}">'
-            f'<span style="{_S_TITLE}">{title}</span>{rating_html}'
-            f'</div>\n'
+            f'<div class="card"><div class="mh"><span class="mt">{title}</span>{rating_html}</div>'
             f'{synopsis_html}'
-            f'<table style="{_S_TABLE}">'
-            f'<tr>'
-            f'<th class="th1">Day</th>'
-            f'<th class="th1">Showtime</th>'
-            f'<th class="th1">Format</th>'
-            f'<th class="th1">Theatre</th>'
-            f'</tr>\n'
+            f'<table class="tbl"><tr>'
+            f'<th class="th1">Day</th><th class="th1">Showtime</th>'
+            f'<th class="th1">Format</th><th class="th1">Theatre</th></tr>'
         )
         rows = []
         for show_date in sorted(info["days"]):
@@ -290,19 +271,15 @@ def render(digest):
             for theatre, fmt, times in sorted(info["days"][show_date]):
                 rows.append((day_label, theatre, fmt, times))
         for i, (day_label, theatre, fmt, times) in enumerate(rows):
-            times_str = "&nbsp;&nbsp;".join(times)
-            is_even = (i % 2 == 1)
-            td_class = _S_TD_ALT if is_even else _S_TD
-            times_class = f'{td_class} {_S_TIMES}'
+            times_str = "&nbsp; ".join(times)
+            c = "tda" if i % 2 else "td"
             html_parts.append(
-                f'<tr>'
-                f'<td class="{td_class}">{day_label}</td>'
-                f'<td class="{times_class}">{times_str}</td>'
-                f'<td class="{td_class}"><span style="{_S_FMT}">{fmt}</span></td>'
-                f'<td class="{td_class}">{theatre}</td>'
-                f'</tr>\n'
+                f'<tr><td class="{c}">{day_label}</td>'
+                f'<td class="{c} tm">{times_str}</td>'
+                f'<td class="{c}"><span class="fm">{fmt}</span></td>'
+                f'<td class="{c}">{theatre}</td></tr>'
             )
-        html_parts.append("</table></div>\n")
+        html_parts.append("</table></div>")
 
     html_parts.append("</div></body></html>")
     html = "".join(html_parts)
