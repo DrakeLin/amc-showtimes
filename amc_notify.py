@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AMC SF evening-showtime digest -> stdout JSON {subject, html}."""
+"""AMC SF evening-showtime digest -> stdout JSON {subject, text}."""
 
 
 import json
