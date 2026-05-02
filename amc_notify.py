@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AMC SF evening-showtime digest -> stdout JSON {subject, text}."""
+"""AMC SF evening-showtime digest -> stdout JSON {subject, html}."""
 
 
 import json
@@ -180,6 +180,10 @@ def get_lb_data(title):
 _THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
 _SEP = "─" * 52
 
+_TH_S = 'style="border:1px solid #ddd;padding:6px 10px;background:#f5f5f5;text-align:left;white-space:nowrap;"'
+_TD_S = 'style="border:1px solid #ddd;padding:6px 10px;vertical-align:top;"'
+_TD_DATE_S = 'style="border:1px solid #ddd;padding:6px 10px;vertical-align:top;white-space:nowrap;font-weight:bold;"'
+
 
 def _fmt_time(dt_str):
     try:
@@ -264,6 +268,85 @@ def render(digest):
     return subject, "\n".join(lines)
 
 
+def render_html(digest):
+    all_dates = sorted({d for td in digest.values() for d in td})
+    date_range_short = f"{all_dates[0].strftime('%-m/%-d')} - {all_dates[-1].strftime('%-m/%-d')}"
+
+    def _fmt_hour(h):
+        return f"{h % 12 or 12} {'pm' if h >= 12 else 'am'}"
+
+    intro = (
+        f"Movies ordered by Letterboxd rating — {date_range_short}, "
+        f"{_fmt_hour(EVENING_START)} to {_fmt_hour(EVENING_END)}"
+    )
+
+    movies = _pivot(digest)
+
+    def _sort_key(title):
+        r = movies[title]["lb_rating"]
+        return (-float(r) if r != "N/A" else 0.0, title)
+
+    parts = ['<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;">']
+    parts.append(f'<p style="color:#888;margin:0 0 16px;">{intro}</p>')
+
+    for title in sorted(movies, key=_sort_key):
+        info = movies[title]
+        rating = info["lb_rating"]
+        synopsis = info.get("synopsis", "")
+        if len(synopsis) > 200:
+            synopsis = synopsis[:197] + "..."
+
+        rating_str = f' <span style="color:#f5a623;">★ {rating}</span>' if rating != "N/A" else ""
+
+        parts.append('<div style="margin-bottom:28px;">')
+        parts.append(f'<h3 style="margin:0 0 4px;font-size:16px;">{title}{rating_str}</h3>')
+        if synopsis:
+            parts.append(f'<p style="margin:0 0 8px;color:#555;font-style:italic;">{synopsis}</p>')
+
+        days = info["days"]
+
+        # Collect ordered unique venue labels across all days
+        seen: set = set()
+        venues = []
+        for show_date in sorted(days):
+            for theatre, fmt, _times in sorted(days[show_date]):
+                name = _THEATRE_SHORT.get(theatre, theatre)
+                f_str = _fmt_format(fmt)
+                label = f"{name} ({f_str})" if f_str else name
+                if label not in seen:
+                    seen.add(label)
+                    venues.append(label)
+        venues.sort()
+
+        parts.append('<table style="border-collapse:collapse;width:100%;">')
+        parts.append('<thead><tr>')
+        parts.append(f'<th {_TH_S}>Date</th>')
+        for v in venues:
+            parts.append(f'<th {_TH_S}>{v}</th>')
+        parts.append('</tr></thead><tbody>')
+
+        for show_date in sorted(days):
+            venue_times: dict = {}
+            for theatre, fmt, times in days[show_date]:
+                name = _THEATRE_SHORT.get(theatre, theatre)
+                f_str = _fmt_format(fmt)
+                label = f"{name} ({f_str})" if f_str else name
+                venue_times[label] = times
+
+            parts.append('<tr>')
+            parts.append(f'<td {_TD_DATE_S}>{show_date.strftime("%a %-m/%-d")}</td>')
+            for v in venues:
+                times = venue_times.get(v, [])
+                cell = ", ".join(times) if times else '<span style="color:#ccc;">—</span>'
+                parts.append(f'<td {_TD_S}>{cell}</td>')
+            parts.append('</tr>')
+
+        parts.append('</tbody></table></div>')
+
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
 # -- Main ----------------------------------------------------------------------
 def main():
     if not VENDOR_KEY:
@@ -315,8 +398,9 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    subject, text = render(digest)
-    print(json.dumps({"subject": subject, "text": text}))
+    subject, _ = render(digest)
+    html = render_html(digest)
+    print(json.dumps({"subject": subject, "html": html}))
 
 
 if __name__ == "__main__":
