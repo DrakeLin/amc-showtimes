@@ -251,8 +251,8 @@ def render(digest):
         info = movies[title]
         rating = info["lb_rating"]
         synopsis = info.get("synopsis", "")
-        if len(synopsis) > 200:
-            synopsis = synopsis[:197] + "..."
+        if len(synopsis) > 400:
+            synopsis = synopsis[:397] + "..."
 
         rating_str = f"  ★ {rating}" if rating != "N/A" else ""
         lines.append(_SEP)
@@ -293,8 +293,8 @@ def render_html(digest):
         info = movies[title]
         rating = info["lb_rating"]
         synopsis = info.get("synopsis", "")
-        if len(synopsis) > 200:
-            synopsis = synopsis[:197] + "..."
+        if len(synopsis) > 400:
+            synopsis = synopsis[:397] + "..."
 
         rating_str = f' <span style="color:#f5a623;">★ {rating}</span>' if rating != "N/A" else ""
 
