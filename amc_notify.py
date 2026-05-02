@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AMC SF evening-showtime digest -> stdout JSON {subject, text}."""
+"""AMC SF evening-showtime digest -> stdout JSON {subject, html}."""
 
 
 import json
@@ -398,9 +398,9 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    subject, text = render(digest)
+    subject, _ = render(digest)
     html = render_html(digest)
-    print(json.dumps({"subject": subject, "text": text, "html": html}))
+    print(json.dumps({"subject": subject, "html": html}))
 
 
 if __name__ == "__main__":
