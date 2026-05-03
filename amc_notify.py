@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AMC SF evening-showtime digest -> stdout JSON {subject, html}."""
+"""AMC SF evening-showtime digest -> stdout JSON {subject, html} with Gmail-safe inline styles."""
 
 import json
 import os
@@ -233,22 +233,10 @@ def get_synopsis(title):
 
 
 # -- HTML rendering ------------------------------------------------------------
-_CSS = """
-  body  { font-family: Georgia, serif; max-width: 680px; margin: 2em auto; color: #222; }
-  h1    { font-size: 1.4em; border-bottom: 2px solid #c00; padding-bottom: .3em; }
-  .movie-block { margin: 1.6em 0 0; }
-  .movie-title  { font-size: 1.05em; font-weight: bold; margin: 0 0 .1em; }
-  .movie-rating { font-size: .9em; color: #e07000; font-weight: bold; }
-  .synopsis { font-size: .84em; color: #555; margin: .15em 0 .4em; font-style: italic; }
-  .na   { color: #bbb; }
-  table { border-collapse: collapse; width: 100%; font-size: .86em; margin-top: .4em; }
-  th    { text-align: left; border-bottom: 1px solid #ddd; padding: .25em .6em;
-          color: #888; font-weight: normal; }
-  td    { padding: .25em .6em; vertical-align: top; }
-  tr:nth-child(even) { background: #f9f9f9; }
-  .fmt  { font-size: .8em; color: #999; }
-  hr.sep { border: none; border-top: 1px solid #eee; margin: 1.2em 0 0; }
-"""
+# Inline style constants (Gmail strips <style> blocks; these survive)
+_SI_TH = 'style="text-align:left;border-bottom:1px solid #ddd;padding:.25em .6em;color:#888;font-weight:normal"'
+_SI_TD = 'style="padding:.25em .6em;vertical-align:top"'
+_SI_TD_ALT = 'style="padding:.25em .6em;vertical-align:top;background:#f9f9f9"'
 
 
 def _fmt_time(dt_str):
@@ -261,7 +249,6 @@ def _fmt_time(dt_str):
 
 
 def _pivot(digest):
-    """Pivot digest[theatre][date][movie] -> movies[title]{rating, days{date: rows}}."""
     movies = {}
     for theatre, shows_by_date in digest.items():
         for show_date, show_list in shows_by_date.items():
@@ -276,7 +263,7 @@ def _pivot(digest):
     return movies
 
 
-def render(digest):
+def render_html(digest):
     all_dates = sorted({d for td in digest.values() for d in td})
     date_labels = " / ".join(d.strftime("%-m/%-d") for d in all_dates)
     subject = "AMC SF Showtimes — " + date_labels
@@ -284,9 +271,10 @@ def render(digest):
     movies = _pivot(digest)
 
     parts = [
-        '<!DOCTYPE html><html><head><meta charset="utf-8">',
-        f"<style>{_CSS}</style></head><body>\n",
-        f"<h1>AMC SF Evening Showtimes — {date_labels}</h1>\n",
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head>',
+        '<body style="font-family:Georgia,serif;max-width:680px;margin:2em auto;color:#222">',
+        f'<h1 style="font-size:1.4em;border-bottom:2px solid #c00;padding-bottom:.3em">'
+        f'AMC SF Evening Showtimes — {date_labels}</h1>',
     ]
 
     def _sort_key(title):
@@ -297,35 +285,41 @@ def render(digest):
         info = movies[title]
         rating = info["lb_rating"]
         rating_html = (
-            f"<span class='movie-rating'>{rating} &#9733;</span>"
+            f'<span style="font-size:.9em;color:#e07000;font-weight:bold">{rating} &#9733;</span>'
             if rating != "N/A"
-            else "<span class='na'>N/A</span>"
+            else '<span style="color:#bbb">N/A</span>'
         )
         if i > 0:
-            parts.append("<hr class='sep'>\n")
+            parts.append('<hr style="border:none;border-top:1px solid #eee;margin:1.2em 0 0">')
         synopsis = info.get("synopsis", "")
-        synopsis_html = f"<p class='synopsis'>{synopsis}</p>\n" if synopsis else ""
-        parts.append(
-            f"<div class='movie-block'>"
-            f"<p class='movie-title'>{title}&ensp;{rating_html}</p>\n"
-            f"{synopsis_html}"
-            "<table><tr>"
-            "<th>Day</th><th>Theatre</th><th>Format</th><th>Showtimes</th>"
-            "</tr>\n"
+        synopsis_html = (
+            f'<p style="font-size:.84em;color:#555;margin:.15em 0 .4em;font-style:italic">{synopsis}</p>'
+            if synopsis else ""
         )
+        parts.append(
+            f'<div style="margin:1.6em 0 0">'
+            f'<p style="font-size:1.05em;font-weight:bold;margin:0 0 .1em">{title}&ensp;{rating_html}</p>'
+            f'{synopsis_html}'
+            f'<table style="border-collapse:collapse;width:100%;font-size:.86em;margin-top:.4em">'
+            f'<tr><th {_SI_TH}>Day</th><th {_SI_TH}>Theatre</th>'
+            f'<th {_SI_TH}>Format</th><th {_SI_TH}>Showtimes</th></tr>'
+        )
+        row = 0
         for show_date in sorted(info["days"]):
             day_label = show_date.strftime("%a %-m/%-d")
             for theatre, fmt, times in sorted(info["days"][show_date]):
+                td = _SI_TD_ALT if row % 2 else _SI_TD
                 times_str = "&nbsp;&nbsp;".join(times)
                 parts.append(
-                    f"<tr><td>{day_label}</td>"
-                    f"<td>{theatre}</td>"
-                    f"<td><span class='fmt'>{fmt}</span></td>"
-                    f"<td>{times_str}</td></tr>\n"
+                    f'<tr><td {td}>{day_label}</td>'
+                    f'<td {td}>{theatre}</td>'
+                    f'<td {td}><span style="font-size:.8em;color:#999">{fmt}</span></td>'
+                    f'<td {td}>{times_str}</td></tr>'
                 )
-        parts.append("</table></div>\n")
+                row += 1
+        parts.append('</table></div>')
 
-    parts.append("</body></html>")
+    parts.append('</body></html>')
     return "".join(parts), subject
 
 
@@ -383,7 +377,7 @@ def main():
 
             digest[theatre_name][show_date] = list(movies.values())
 
-    html, subject = render(digest)
+    html, subject = render_html(digest)
     print(json.dumps({"subject": subject, "html": html}))
 
 
