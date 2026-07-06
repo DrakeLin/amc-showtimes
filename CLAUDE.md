@@ -18,16 +18,30 @@ Three tiers, deliberately different TTLs because these values change at differen
 | Letterboxd rating/synopsis | 7 days, in-memory, keyed by title | Essentially static |
 | Seat fill % | None — fetched fresh every page load via `/api/fills` | The one fast-moving number |
 
-All caches are in-memory (no Railway volume — costs money, and redeploys are rare enough that resetting on deploy is fine). Refresh button busts the schedule cache; `POST /api/refresh?full=1` also busts the Letterboxd cache.
+All caches are in-memory, no persistent volume — Cloud Run instances are ephemeral by design, so the cache resets whenever the instance scales to zero and cold-starts again (idle timeout, default ~15 min). That's the tradeoff for staying on Cloud Run's free tier. Refresh button busts the schedule cache; `POST /api/refresh?full=1` also busts the Letterboxd cache.
 
-## Deploying (Railway)
+## Deploying (Google Cloud Run)
 
-1. [railway.app](https://railway.app) → New Project → Deploy from GitHub repo → `drakelin/amc-showtimes`
-2. Railway auto-detects `Procfile` (`gunicorn server:app ... --workers 1`) and `requirements.txt`
-3. Service → Variables → set `AMC_VENDOR_KEY`
-4. Push to `main` to redeploy. Grab the `*.railway.app` URL, add to iOS home screen (Safari → Share → Add to Home Screen) for the installed PWA experience.
+Why Cloud Run and not Railway/Vercel/PythonAnywhere: Railway dropped its free tier in 2023. Vercel's serverless functions have a 10s timeout — the schedule build (AMC + Letterboxd scraping with rate-limit sleeps) routinely takes 30-60s, so it would just fail. PythonAnywhere's free tier restricts outbound requests to an allowlist of documented public APIs — `api.amctheatres.com` and Letterboxd scraping aren't on it, so the app couldn't fetch data at all. Cloud Run has none of these problems and is free at this app's traffic scale.
 
-`--workers 1` is required — the in-memory caches would fragment across workers otherwise.
+Prereqs: a Google Cloud project with billing enabled (Cloud Run's free tier doesn't require a paid account, but GCP requires a card on file) and the `gcloud` CLI installed and authenticated (`gcloud init`).
+
+```bash
+gcloud run deploy amc-showtimes \
+  --source . \
+  --region us-west1 \
+  --allow-unauthenticated \
+  --set-env-vars AMC_VENDOR_KEY=your_key_here \
+  --timeout 300 \
+  --min-instances 0 \
+  --max-instances 1
+```
+
+This builds the `Dockerfile` in Cloud Build and deploys it. `--max-instances 1` keeps the in-memory caches from fragmenting across concurrent instances, matching the `--workers 1` intent in the Dockerfile. Grab the printed `*.run.app` URL and add it to your phone's home screen (Safari → Share → Add to Home Screen) for the installed PWA experience.
+
+To redeploy after code changes, just re-run the same `gcloud run deploy` command.
+
+**Cold starts**: since `--min-instances 0`, the container spins down after ~15 min idle. The next request pays a few-second cold start plus a full cache rebuild if the in-memory cache was also lost. Acceptable for a personal app opened a few times a day; if it's annoying, `--min-instances 1` keeps one instance warm at all times but will likely exceed the free tier's compute-time allowance and start incurring (small) charges.
 
 ## TODO / ideas (not yet built, unvalidated)
 

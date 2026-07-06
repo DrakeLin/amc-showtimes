@@ -9,7 +9,8 @@ amc-showtimes/
 ├── amc.py            # Shared AMC Theatres / Letterboxd fetch + parse helpers
 ├── server.py         # Flask app: schedule + fill API, serves static/
 ├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
-├── Procfile          # Railway process command
+├── Dockerfile         # Cloud Run build
+├── Procfile          # Kept for local/alt-PaaS use (gunicorn command)
 └── requirements.txt
 ```
 
@@ -20,7 +21,7 @@ amc-showtimes/
 | `AMC_VENDOR_KEY` | yes | — | AMC Theatres API vendor key |
 | `AMC_EVENING_START` | no | `15` | Earliest hour (24h) to include |
 | `AMC_EVENING_END` | no | `20` | Latest hour, exclusive |
-| `PORT` | no | `8080` | Set automatically by Railway |
+| `PORT` | no | `8080` | Set automatically by Cloud Run |
 
 Theatres are hardcoded in `amc.py`:
 ```python
@@ -38,13 +39,13 @@ Visit `http://localhost:8080`.
 
 ## Deploying
 
-See `CLAUDE.md` for the Railway deploy steps and caching model.
+See `CLAUDE.md` for the Cloud Run deploy command and caching model.
 
 ## Failure modes
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `ERROR: AMC_VENDOR_KEY env var is not set` | Env var missing | Set it in Railway → Variables |
+| `ERROR: AMC_VENDOR_KEY env var is not set` | Env var missing | Redeploy with `--set-env-vars AMC_VENDOR_KEY=...`, or `gcloud run services update` |
 | Schedule loads but no movies | Network/theatre IDs wrong, or nothing playing 3-8pm | Check `THEATRES` IDs in `amc.py`, try widening `AMC_EVENING_START/END` |
 | AMC returns 401/403 | Vendor key invalid | Regenerate key, update env var |
 | All Letterboxd ratings are N/A | Letterboxd HTML changed | Update `_LB_RATING_RE` / `_LB_LD_RE` in `amc.py` |
