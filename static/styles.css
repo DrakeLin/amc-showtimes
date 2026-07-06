@@ -245,6 +245,7 @@ main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; }
   transition: width 0.3s;
 }
 
+.fill-pending { color: var(--text2); opacity: 0.5; }
 .fill-low  { color: var(--green); }
 .fill-low .fill-bar-fill  { background: var(--green); }
 .fill-med  { color: var(--yellow); }

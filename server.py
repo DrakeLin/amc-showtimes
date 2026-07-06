@@ -20,13 +20,17 @@ app = Flask(__name__, static_folder="static", static_url_path="/static")
 SHOW_START = int(os.environ.get("AMC_EVENING_START", "15"))
 SHOW_END   = int(os.environ.get("AMC_EVENING_END",   "20"))
 
-_cache: dict = {"data": None, "ts": 0}
-_cache_lock = threading.Lock()
-CACHE_TTL = 3600  # 1 hour (showtimes/seat fills change often)
+# Schedule (movies/times/ratings) changes rarely -> cache daily.
+_schedule_cache: dict = {"data": None, "ts": 0}
+_schedule_cache_lock = threading.Lock()
+SCHEDULE_CACHE_TTL = 24 * 3600  # 1 day
 
+# Letterboxd ratings/synopses change even less often -> cache weekly.
 _lb_cache: dict = {}  # title -> {"rating": str, "synopsis": str, "ts": float}
 _lb_cache_lock = threading.Lock()
-LB_CACHE_TTL = 7 * 24 * 3600  # 1 week (ratings/synopses rarely change)
+LB_CACHE_TTL = 7 * 24 * 3600  # 1 week
+
+# Seat fill changes minute to minute -> never cached, fetched fresh on demand.
 
 
 def get_lb_data_cached(title):
@@ -65,9 +69,14 @@ def _seat_fill(showtime):
     return None
 
 
-def build_showtimes():
+def _fill_key(theatre_id, show_date, title, fmt):
+    return f"{theatre_id}|{show_date.isoformat()}|{title}|{fmt}"
+
+
+def build_schedule():
+    """Movies + showtimes + Letterboxd ratings, WITHOUT seat fill (fetched separately, on demand)."""
     dates = [date.today() + timedelta(days=i) for i in range(7)]
-    movies: dict = {}  # title -> {lb_rating, synopsis, showings: [{date, theatre, format, times, fill}]}
+    movies: dict = {}  # title -> {lb_rating, synopsis, showings: [...]}
 
     for theatre_name, theatre_id in amc.THEATRES.items():
         for show_date in dates:
@@ -88,12 +97,10 @@ def build_showtimes():
                 fmt = amc.get_format(s)
                 key = (title, fmt)
                 t_label = amc._fmt_time(s.get("showDateTimeLocal", ""))
-                fill = _seat_fill(s)
                 if key not in groups:
-                    groups[key] = {"times": [], "fills": []}
+                    groups[key] = {"times": []}
                 if t_label not in groups[key]["times"]:
                     groups[key]["times"].append(t_label)
-                    groups[key]["fills"].append(fill)
 
             seen_lb: dict = {}
             for (title, fmt), g in groups.items():
@@ -110,10 +117,6 @@ def build_showtimes():
                         "showings": [],
                     }
 
-                # Average fill across times (exclude None)
-                fills = [f for f in g["fills"] if f is not None]
-                avg_fill = round(sum(fills) / len(fills)) if fills else None
-
                 movies[title]["showings"].append({
                     "date": show_date.isoformat(),
                     "date_label": show_date.strftime("%a %-m/%-d"),
@@ -121,7 +124,7 @@ def build_showtimes():
                     "theatre_short": amc._THEATRE_SHORT.get(theatre_name, theatre_name),
                     "format": fmt,
                     "times": sorted(g["times"]),
-                    "fill_pct": avg_fill,
+                    "fill_key": _fill_key(theatre_id, show_date, title, fmt),
                 })
 
     result = sorted(
@@ -131,13 +134,43 @@ def build_showtimes():
     return result
 
 
-def get_cached():
-    with _cache_lock:
-        if _cache["data"] is None or time.time() - _cache["ts"] > CACHE_TTL:
-            print("Refreshing showtime cache...", file=sys.stderr)
-            _cache["data"] = build_showtimes()
-            _cache["ts"] = time.time()
-        return _cache["data"]
+def get_schedule():
+    with _schedule_cache_lock:
+        if _schedule_cache["data"] is None or time.time() - _schedule_cache["ts"] > SCHEDULE_CACHE_TTL:
+            print("Refreshing daily schedule cache...", file=sys.stderr)
+            _schedule_cache["data"] = build_schedule()
+            _schedule_cache["ts"] = time.time()
+        return _schedule_cache["data"]
+
+
+def fetch_fill_map():
+    """Fresh (uncached) seat-fill lookup for every showing in the current schedule window."""
+    dates = [date.today() + timedelta(days=i) for i in range(7)]
+    fills: dict = {}
+
+    for theatre_name, theatre_id in amc.THEATRES.items():
+        for show_date in dates:
+            try:
+                raw = amc.fetch_showtimes(theatre_id, show_date)
+            except Exception as exc:
+                print(f"WARN fill lookup: {theatre_name} {show_date}: {exc}", file=sys.stderr)
+                continue
+
+            evening = [s for s in raw if _evening(s)]
+            groups: dict = {}
+            for s in evening:
+                title = s.get("movieTitle") or s.get("movieName") or "Unknown"
+                fmt = amc.get_format(s)
+                key = (title, fmt)
+                fill = _seat_fill(s)
+                groups.setdefault(key, []).append(fill)
+
+            for (title, fmt), fill_list in groups.items():
+                valid = [f for f in fill_list if f is not None]
+                avg_fill = round(sum(valid) / len(valid)) if valid else None
+                fills[_fill_key(theatre_id, show_date, title, fmt)] = avg_fill
+
+    return fills
 
 
 @app.route("/")
@@ -148,16 +181,25 @@ def index():
 @app.route("/api/showtimes")
 def showtimes():
     try:
-        data = get_cached()
-        return jsonify({"ok": True, "movies": data, "cached_at": _cache["ts"]})
+        data = get_schedule()
+        return jsonify({"ok": True, "movies": data, "cached_at": _schedule_cache["ts"]})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/fills")
+def fills():
+    try:
+        data = fetch_fill_map()
+        return jsonify({"ok": True, "fills": data})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/refresh", methods=["POST"])
 def refresh():
-    with _cache_lock:
-        _cache["data"] = None
+    with _schedule_cache_lock:
+        _schedule_cache["data"] = None
     if request.args.get("full") == "1":
         with _lb_cache_lock:
             _lb_cache.clear()

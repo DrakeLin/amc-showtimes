@@ -14,7 +14,9 @@ function fillClass(pct) {
 }
 
 function renderFill(pct) {
-  if (pct === null) return "";
+  if (pct === null || pct === undefined) {
+    return `<div class="fill-meter fill-pending"><span class="fill-pct">…</span></div>`;
+  }
   const cls = fillClass(pct);
   return `
     <div class="fill-meter ${cls}">
@@ -40,13 +42,13 @@ function renderMovie(movie) {
       : "";
     const times = s.times.map(t => `<span class="time-chip">${t}</span>`).join("");
     return `
-      <div class="showing-row">
+      <div class="showing-row" data-fill-key="${s.fill_key}">
         <div class="showing-date">${s.date_label}</div>
         <div>
           <div class="showing-venue">${s.theatre_short}${fmt}</div>
           <div class="times">${times}</div>
         </div>
-        ${renderFill(s.fill_pct)}
+        ${renderFill(undefined)}
       </div>`;
   }).join("");
 
@@ -65,6 +67,23 @@ function renderMovie(movie) {
 
 function setSubtitle(text) {
   $("subtitle").textContent = text;
+}
+
+async function loadFills() {
+  try {
+    const res = await fetch("/api/fills");
+    const data = await res.json();
+    if (!data.ok) return;
+
+    for (const [key, pct] of Object.entries(data.fills)) {
+      const row = document.querySelector(`.showing-row[data-fill-key="${CSS.escape(key)}"]`);
+      if (!row) continue;
+      const meter = row.querySelector(".fill-meter");
+      if (meter) meter.outerHTML = renderFill(pct);
+    }
+  } catch (err) {
+    console.error("Failed to load seat fills:", err);
+  }
 }
 
 async function load(forceRefresh = false) {
@@ -93,6 +112,8 @@ async function load(forceRefresh = false) {
 
     const ts = new Date(data.cached_at * 1000);
     setSubtitle(`${movies.length} movies · updated ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+
+    if (movies.length) loadFills();
   } catch (err) {
     $("error").textContent = `Failed to load: ${err.message}`;
     $("error").classList.remove("hidden");
