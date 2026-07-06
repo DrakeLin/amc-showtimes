@@ -1,11 +1,11 @@
 {
   "name": "AMC Showtimes SF",
   "short_name": "AMC SF",
-  "description": "AMC SF evening showtimes with Letterboxd ratings",
+  "description": "AMC SF showtimes with Letterboxd ratings and live seat status",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0d0d",
-  "theme_color": "#e50000",
+  "background_color": "#fdf8f6",
+  "theme_color": "#d4a5a0",
   "icons": [
     {
       "src": "/static/icon-192.png",
