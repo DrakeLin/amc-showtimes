@@ -3,9 +3,13 @@
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, timedelta
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -196,10 +200,97 @@ def build_schedule():
     return result
 
 
+# -- GCS snapshot ------------------------------------------------------------------
+# Cloud Run instances are ephemeral: at min-instances 0 the in-memory cache
+# dies with every scale-to-zero, so most page loads used to pay the full
+# 30-60s rebuild. Persist the built schedule as a single JSON object in GCS
+# (same shape as the dev disk cache) and reload it on cold start instead.
+# ~70KB, a few reads/writes a day -- comfortably inside GCS's free tier.
+# Stdlib-only: auth comes from the Cloud Run metadata server (or the gcloud
+# CLI when testing locally); the object is read/written via the JSON API.
+# Disabled unless the GCS_BUCKET env var is set.
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
+GCS_OBJECT = "schedule.json"
+
+
+def _gcs_token():
+    """Access token for GCS: Cloud Run metadata server in prod, gcloud CLI
+    locally. Returns None (disabling the snapshot) if neither works."""
+    req = urllib.request.Request(
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        headers={"Metadata-Flavor": "Google"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return json.load(resp)["access_token"]
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(
+            ["gcloud", "auth", "print-access-token"],
+            capture_output=True, text=True, check=True, timeout=15,
+        )
+        return out.stdout.strip()
+    except Exception:
+        return None
+
+
+def _load_gcs_snapshot():
+    """Populate the schedule cache from the GCS snapshot if it's fresh."""
+    if not GCS_BUCKET:
+        return
+    token = _gcs_token()
+    if not token:
+        print("WARN: GCS snapshot enabled but no credentials found", file=sys.stderr)
+        return
+    url = (
+        f"https://storage.googleapis.com/storage/v1/b/{GCS_BUCKET}"
+        f"/o/{urllib.parse.quote(GCS_OBJECT, safe='')}?alt=media"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            saved = json.load(resp)
+        if time.time() - saved["ts"] < SCHEDULE_CACHE_TTL:
+            _schedule_cache["data"] = saved["data"]
+            _schedule_cache["ts"] = saved["ts"]
+            print("Loaded schedule from GCS snapshot", file=sys.stderr)
+        else:
+            print("GCS snapshot expired, ignoring", file=sys.stderr)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:  # 404 = first run, no snapshot yet
+            print(f"WARN: GCS snapshot load: HTTP {exc.code}", file=sys.stderr)
+    except Exception as exc:
+        print(f"WARN: GCS snapshot load: {exc}", file=sys.stderr)
+
+
+def _save_gcs_snapshot():
+    if not GCS_BUCKET or _schedule_cache["data"] is None:
+        return
+    token = _gcs_token()
+    if not token:
+        return
+    url = (
+        f"https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET}"
+        f"/o?uploadType=media&name={urllib.parse.quote(GCS_OBJECT, safe='')}"
+    )
+    body = json.dumps({"data": _schedule_cache["data"], "ts": _schedule_cache["ts"]}).encode()
+    try:
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30):
+            pass
+        print("Saved schedule snapshot to GCS", file=sys.stderr)
+    except Exception as exc:
+        print(f"WARN: GCS snapshot save: {exc}", file=sys.stderr)
+
+
 # -- Dev disk cache --------------------------------------------------------------
 # Dev-only: persist the schedule cache to disk so the Flask reloader (which
 # restarts the process on every file save) doesn't re-hit AMC/Letterboxd
-# on each edit. Never used in prod (Cloud Run instances are ephemeral anyway).
+# on each edit. Prod uses the GCS snapshot above instead.
 DEV_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".dev_schedule_cache.json")
 
 
@@ -231,11 +322,14 @@ def get_schedule():
     with _schedule_cache_lock:
         if _schedule_cache["data"] is None:
             _load_dev_cache()
+        if _schedule_cache["data"] is None:
+            _load_gcs_snapshot()
         if _schedule_cache["data"] is None or time.time() - _schedule_cache["ts"] > SCHEDULE_CACHE_TTL:
             print("Refreshing daily schedule cache...", file=sys.stderr)
             _schedule_cache["data"] = build_schedule()
             _schedule_cache["ts"] = time.time()
             _save_dev_cache()
+            _save_gcs_snapshot()
         return _schedule_cache["data"]
 
 
@@ -308,13 +402,25 @@ def status():
 
 @app.route("/api/refresh", methods=["POST"])
 def refresh():
-    with _schedule_cache_lock:
-        _schedule_cache["data"] = None
     if request.args.get("full") == "1":
         with _lb_cache_lock:
             _lb_cache.clear()
         with _movie_meta_cache_lock:
             _movie_meta_cache.clear()
+    # Rebuild unconditionally before returning -- NOT via get_schedule(), which
+    # would just reload the still-fresh GCS snapshot and skip the re-scrape.
+    # Building here is what lets the Cloud Scheduler job pre-warm: each run
+    # leaves a fresh in-memory cache and GCS snapshot behind. The frontend's
+    # progress polling keeps working since build status updates during this.
+    with _schedule_cache_lock:
+        try:
+            _schedule_cache["data"] = build_schedule()
+            _schedule_cache["ts"] = time.time()
+            _save_dev_cache()
+            _save_gcs_snapshot()
+        except Exception as exc:
+            _schedule_cache["data"] = None
+            return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True})
 
 
@@ -338,6 +444,7 @@ def _auto_refresh_loop():
             _schedule_cache["data"] = build_schedule()
             _schedule_cache["ts"] = time.time()
             _save_dev_cache()
+            _save_gcs_snapshot()
             print("auto-refresh: done", file=sys.stderr)
         except Exception as exc:
             print(f"auto-refresh: failed: {exc}", file=sys.stderr)

@@ -31,5 +31,6 @@ Thanks for your interest! This is a small personal-scale project, so the process
 ## Submitting changes
 
 1. Fork, branch from `main`.
-2. Test locally against the live APIs (there's no test suite — verify by running the app and exercising the UI, including `/api/fills` seat-status coloring if you touched it).
-3. Open a PR with a short description of what changed and why. Screenshots appreciated for UI changes.
+2. Run the unit tests: `python3 -m unittest discover -s tests` (fast, no network). Add cases for any parsing/cleaning logic you change — that's where regressions hide.
+3. Also verify against the live APIs by running the app and exercising the UI, including `/api/fills` seat-status coloring if you touched it.
+4. Open a PR with a short description of what changed and why. Screenshots appreciated for UI changes.

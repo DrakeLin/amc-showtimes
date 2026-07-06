@@ -13,6 +13,7 @@ amc-showtimes/
 ├── amc.py            # AMC Theatres / Letterboxd fetch + parse helpers (data only)
 ├── server.py         # Flask app: API endpoints, caching, serves static/
 ├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
+├── tests/            # unit tests (stdlib unittest, no network)
 ├── Dockerfile        # Cloud Run build (gunicorn, single worker)
 └── requirements.txt
 ```
@@ -35,6 +36,7 @@ Seat status is an enum, not a percentage — AMC's public API exposes no seat co
 | `AMC_VENDOR_KEY` | yes | — | AMC Theatres API vendor key (request one at [developers.amctheatres.com](https://developers.amctheatres.com)) |
 | `PORT` | no | `8080` | Set automatically by Cloud Run |
 | `FLASK_DEBUG` | no | — | Set to `1` for the local dev loop (see below) |
+| `GCS_BUCKET` | no | — | GCS bucket for the schedule snapshot; unset disables it. Lets cold-started Cloud Run instances load the last built schedule (<1s) instead of re-scraping (30–60s) |
 
 Theatres are hardcoded in `amc.py`:
 ```python
@@ -56,6 +58,14 @@ Visit `http://localhost:8080`.
 - **Disk-backed schedule cache** (`.dev_schedule_cache.json`, gitignored) — without this, every reload would re-hit AMC + Letterboxd (30–60s). The schedule is written to disk after the first build and reloaded on subsequent restarts, still respecting the normal 24h TTL. Delete the file (or call `POST /api/refresh`) to force a real refetch.
 
 Frontend-only changes (`static/`) don't need a restart at all — just reload the page.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+No network, no env vars, runs in well under a second. Coverage is the parsing/cleaning logic that breaks most often (title cleanup, Letterboxd page parsing, time/format helpers) — please add cases when you touch those.
 
 ## Deploying
 

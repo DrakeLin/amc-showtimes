@@ -23,24 +23,25 @@ Three tiers, deliberately different TTLs because these values change at differen
 
 Seat status is an enum, not a percentage: AMC's public API exposes no seat counts (verified live), only per-showtime `isSoldOut`/`isAlmostSoldOut` flags. `/api/fills` returns, per `fill_key`, a `{"HH:MM": "sold_out" | "almost" | "open"}` map (same 24h keys as `times24`); the frontend colors each time pill accordingly.
 
-All caches are in-memory, no persistent volume — Cloud Run instances are ephemeral by design, so the cache resets whenever the instance scales to zero and cold-starts again (idle timeout, default ~15 min). That's the tradeoff for staying on Cloud Run's free tier. Refresh button busts the schedule cache; `POST /api/refresh?full=1` also busts the Letterboxd and movie-metadata caches.
+Caches are in-memory, but the built schedule is also persisted as a single ~70KB JSON object (`schedule.json`, same shape as the dev disk cache) in the `gs://showtimes-123-cache` GCS bucket whenever it's rebuilt. Cloud Run instances are ephemeral (scale-to-zero after ~15 min idle kills the in-memory cache), so on cold start the server loads the snapshot from GCS (<1s) instead of paying the 30-60s rebuild. Stdlib-only (metadata-server token + JSON API, no google-cloud-storage dep); controlled by the `GCS_BUCKET` env var (unset = disabled, e.g. in local dev where the disk cache covers restarts). Usage is ~1% of GCS's always-free tier.
 
-A daemon thread in `server.py` rebuilds the schedule cache every 12h (skips a cycle if a build is already holding the cache lock; logs to stderr). Note that with `--min-instances 0` this thread only helps while an instance happens to be warm — see the Cloud Scheduler section below for cold coverage.
+Refresh button / `POST /api/refresh` busts the schedule cache **and rebuilds it synchronously** before returning (so a scheduled call leaves a fresh cache + GCS snapshot behind, not an empty cache); `?full=1` also busts the Letterboxd and movie-metadata caches.
 
-## Scheduled refresh (Cloud Scheduler — configure manually, not yet set up)
+A daemon thread in `server.py` rebuilds the schedule cache every 12h. Know that in the deployed config it's mostly decorative: with `--min-instances 0` an instance rarely lives 12h, and Cloud Run's default request-based billing throttles CPU to ~zero between requests, so the sleeping thread barely advances even on a warm instance. Real freshness comes from the Cloud Scheduler job below; the thread only matters under sustained traffic or an always-on-CPU config.
 
-AMC posts the new week's showtimes by Wednesday afternoon. A Cloud Scheduler job hitting the refresh endpoint twice daily both refreshes the cache and pre-warms a cold instance (which the in-process 12h thread can't do at min-instances 0):
+## Scheduled refresh (Cloud Scheduler — job `amc-showtimes-refresh`, us-west1)
+
+AMC posts the new week's showtimes by Wednesday afternoon. A Cloud Scheduler job POSTs to `/api/refresh` twice daily; because refresh rebuilds synchronously, each run wakes a cold instance, rebuilds the schedule, and writes a fresh GCS snapshot for the next cold start. The 17:00 run catches Wednesday's weekly showtime drop; the 05:00 run keeps mornings fresh. It was created with:
 
 ```bash
 gcloud scheduler jobs create http amc-showtimes-refresh \
   --schedule "0 5,17 * * *" \
   --time-zone "America/Los_Angeles" \
-  --uri "https://<service-url>/api/refresh" \
+  --uri "https://amc-showtimes-114648525819.us-west1.run.app/api/refresh" \
   --http-method POST \
+  --attempt-deadline 300s \
   --location us-west1
 ```
-
-The 17:00 run catches Wednesday's weekly showtime drop; the 05:00 run keeps mornings fresh.
 
 ## Deploying (Google Cloud Run)
 
@@ -59,7 +60,16 @@ gcloud run deploy amc-showtimes \
   --max-instances 1
 ```
 
-This builds the `Dockerfile` in Cloud Build and deploys it. `--max-instances 1` keeps the in-memory caches from fragmenting across concurrent instances, matching the `--workers 1` intent in the Dockerfile. Grab the printed `*.run.app` URL and add it to your phone's home screen (Safari → Share → Add to Home Screen) for the installed PWA experience.
+For your own deployment, first create the snapshot bucket and let the Cloud Run service account write to it (skip and omit `GCS_BUCKET` if you don't care about cold-start speed):
+
+```bash
+gcloud storage buckets create gs://<your-bucket> --location us-west1 --uniform-bucket-level-access
+gcloud storage buckets add-iam-policy-binding gs://<your-bucket> \
+  --member="serviceAccount:<project-number>-compute@developer.gserviceaccount.com" \
+  --role=roles/storage.objectAdmin
+```
+
+Then add `,GCS_BUCKET=<your-bucket>` to `--set-env-vars` above. This builds the `Dockerfile` in Cloud Build and deploys it. `--max-instances 1` keeps the in-memory caches from fragmenting across concurrent instances, matching the `--workers 1` intent in the Dockerfile. Grab the printed `*.run.app` URL and add it to your phone's home screen (Safari → Share → Add to Home Screen) for the installed PWA experience.
 
 To redeploy after code changes, just re-run the same `gcloud run deploy` command.
 
