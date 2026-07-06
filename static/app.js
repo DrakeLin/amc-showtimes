@@ -59,14 +59,12 @@ function isMovieShowingsVisible(title) {
   return map[title] !== 0;
 }
 
-function renderMovieShowingsVisible(title) {
-  const map = loadMovieVisibility();
-  return map[title] !== 0;
-}
-
 let filterState = loadFilterState();
 let activePopoverDow = null;
 
+// ---------------------------------------------------------------------------
+// Time-range popover (two-knob slider, opened from a day chip)
+// ---------------------------------------------------------------------------
 function timeOptions() {
   const opts = [];
   for (let h = 0; h < 24; h++) {
@@ -216,6 +214,9 @@ function hideTimePopover() {
 window.addEventListener("scroll", positionTimePopover, { passive: true });
 window.addEventListener("resize", positionTimePopover);
 
+// ---------------------------------------------------------------------------
+// Client-side filtering (the server always returns full-day showtimes)
+// ---------------------------------------------------------------------------
 function dowFromDateStr(dateStr) {
   // dateStr is "YYYY-MM-DD"
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -271,6 +272,9 @@ function applyFilters() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Movie cards
+// ---------------------------------------------------------------------------
 function renderMovie(movie) {
   // Letterboxd badge display rules:
   // - If we have a Letterboxd page (`lb_url`) show "Letterboxd: ★ <rating>".
@@ -301,7 +305,7 @@ function renderMovie(movie) {
     ? `<img class="poster" src="${movie.poster}" alt="" loading="lazy">`
     : `<div class="poster poster-placeholder" aria-hidden="true">🎬</div>`;
 
-  const showingsVisible = renderMovieShowingsVisible(movie.title);
+  const showingsVisible = isMovieShowingsVisible(movie.title);
 
   // Group showings by date so both theatres share one row per day.
   const byDate = new Map();
@@ -401,6 +405,9 @@ function attachMovieToggleHandlers() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Data loading (schedule, build-progress polling, seat status)
+// ---------------------------------------------------------------------------
 async function pollStatus() {
   /**
    * Poll /api/status while the initial schedule load is in progress.
@@ -480,18 +487,17 @@ async function load(forceRefresh = false) {
       setLoadingProgress(0);
     }
 
-    // Poll status endpoint while main fetch is happening (both will complete)
-    const statusPoll = pollStatus();
+    // Fire-and-forget: poll /api/status for progress text while the main
+    // fetch is in flight; it stops on its own once the build reports "done".
+    pollStatus();
     const res = await fetch("/api/showtimes");
-
-    // Don't wait for status poll - fetch is done, proceed to render
     const data = await res.json();
 
     if (!data.ok) throw new Error(data.error || "Unknown error");
 
     const movies = data.movies;
     if (!movies.length) {
-      $("movies").innerHTML = `<div class="empty">No evening showtimes found for the next 7 days.</div>`;
+      $("movies").innerHTML = `<div class="empty">No showtimes found for the next 7 days.</div>`;
     } else {
       $("movies").innerHTML = movies.map(renderMovie).join("");
       applyFilters();

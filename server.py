@@ -15,6 +15,9 @@ import amc
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
+# -- In-memory caches ------------------------------------------------------------
+# Three tiers with deliberately different TTLs (see CLAUDE.md "Caching model").
+
 # Schedule (movies/times/ratings) changes rarely -> cache daily.
 _schedule_cache: dict = {"data": None, "ts": 0}
 _schedule_cache_lock = threading.Lock()
@@ -37,6 +40,7 @@ _build_status: dict = {"stage": "idle", "detail": "", "progress": 0}
 _build_status_lock = threading.Lock()
 
 
+# -- Cached lookups --------------------------------------------------------------
 def get_lb_data_cached(title):
     with _lb_cache_lock:
         entry = _lb_cache.get(title)
@@ -70,6 +74,7 @@ def get_movie_meta_cached(movie_id):
     return entry
 
 
+# -- Schedule build --------------------------------------------------------------
 def _time24(showtime):
     """Return 'HH:MM' 24h sortable/filterable string, or None if unparseable."""
     dt_str = showtime.get("showDateTimeLocal", "")
@@ -116,7 +121,7 @@ def build_schedule():
         for show_date in dates:
             step += 1
             pct = int(5 + 90 * (step - 1) / total_steps)
-            short = amc._THEATRE_SHORT.get(theatre_name, theatre_name)
+            short = amc.THEATRE_SHORT.get(theatre_name, theatre_name)
             day = show_date.strftime("%a %-m/%-d")
             _set_build_status("amc", f"Showtimes: {short} · {day}", pct)
             try:
@@ -135,7 +140,7 @@ def build_schedule():
                 title = s.get("movieTitle") or s.get("movieName") or "Unknown"
                 fmt = amc.get_format(s)
                 key = (title, fmt)
-                t_label = amc._fmt_time(s.get("showDateTimeLocal", ""))
+                t_label = amc.fmt_time(s.get("showDateTimeLocal", ""))
                 t24 = _time24(s)
                 if t24 is None:
                     continue
@@ -173,7 +178,7 @@ def build_schedule():
                     "date": show_date.isoformat(),
                     "date_label": show_date.strftime("%a %-m/%-d"),
                     "theatre": theatre_name,
-                    "theatre_short": amc._THEATRE_SHORT.get(theatre_name, theatre_name),
+                    "theatre_short": amc.THEATRE_SHORT.get(theatre_name, theatre_name),
                     "format": fmt,
                     "times": [g["times"][i] for i in order],
                     "times24": [g["times24"][i] for i in order],
@@ -191,6 +196,7 @@ def build_schedule():
     return result
 
 
+# -- Dev disk cache --------------------------------------------------------------
 # Dev-only: persist the schedule cache to disk so the Flask reloader (which
 # restarts the process on every file save) doesn't re-hit AMC/Letterboxd
 # on each edit. Never used in prod (Cloud Run instances are ephemeral anyway).
@@ -233,8 +239,9 @@ def get_schedule():
         return _schedule_cache["data"]
 
 
+# -- Seat status -----------------------------------------------------------------
 def fetch_fill_map():
-    """Fresh (uncached) seat-fill lookup for every showing in the current schedule window."""
+    """Fresh (uncached) seat-status lookup for every showing in the current schedule window."""
     dates = [date.today() + timedelta(days=i) for i in range(7)]
     fills: dict = {}
 
@@ -263,6 +270,7 @@ def fetch_fill_map():
     return fills
 
 
+# -- Routes ----------------------------------------------------------------------
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -353,6 +361,7 @@ def _start_refresh_thread():
 _start_refresh_thread()
 
 
+# -- Entrypoint (local dev; prod runs via gunicorn, see Dockerfile) ----------------
 if __name__ == "__main__":
     vendor_key = os.environ.get("AMC_VENDOR_KEY", "")
     if not vendor_key:

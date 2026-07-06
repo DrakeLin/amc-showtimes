@@ -1,4 +1,6 @@
-const CACHE = "amc-v1";
+// Bump the version whenever anything in SHELL changes -- the shell is served
+// cache-first, so installed PWAs keep the old assets until the SW updates.
+const CACHE = "amc-v2";
 const SHELL = ["/", "/static/app.js", "/static/styles.css"];
 
 self.addEventListener("install", e => {

@@ -1,6 +1,6 @@
 # AMC Showtimes
 
-A personal-scale Flask PWA (installed to the owner's phone home screen): shows movies playing at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live per-showtime seat status. The server returns full-day showtimes (with a parallel 24h `times24` list per showing); day-of-week and time-range filtering happens client-side (day chips: each tap cycles all times → custom hours (time-range popover) → skipped; persisted in localStorage).
+A personal-scale Flask PWA deployed on Google Cloud Run at https://amc-showtimes-114648525819.us-west1.run.app/ (installed to the owner's phone home screen): shows movies playing at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live per-showtime seat status. The server returns full-day showtimes (with a parallel 24h `times24` list per showing); day-of-week and time-range filtering happens client-side (day chips: each tap cycles all times → custom hours (time-range popover) → skipped; persisted in localStorage).
 
 - **`amc.py`** — shared AMC Theatres / Letterboxd fetch + parse helpers (no CLI, no rendering — just data fetching)
 - **`server.py`** — Flask API (schedule + fill endpoints) + serves `static/`
@@ -44,7 +44,7 @@ The 17:00 run catches Wednesday's weekly showtime drop; the 05:00 run keeps morn
 
 ## Deploying (Google Cloud Run)
 
-Why Cloud Run and not Railway/Vercel/PythonAnywhere: Railway dropped its free tier in 2023. Vercel's serverless functions have a 10s timeout — the schedule build (AMC + Letterboxd scraping with rate-limit sleeps) routinely takes 30-60s, so it would just fail. PythonAnywhere's free tier restricts outbound requests to an allowlist of documented public APIs — `api.amctheatres.com` and Letterboxd scraping aren't on it, so the app couldn't fetch data at all. Cloud Run has none of these problems and is free at this app's traffic scale.
+Why Cloud Run: the app needs long request handling (the schedule build — AMC + Letterboxd scraping with rate-limit sleeps — routinely takes 30-60s, which rules out serverless platforms with ~10s function timeouts), unrestricted outbound HTTP (some free tiers allowlist which hosts you can fetch from), and a free tier at this traffic scale. Cloud Run satisfies all three.
 
 Prereqs: a Google Cloud project with billing enabled (Cloud Run's free tier doesn't require a paid account, but GCP requires a card on file) and the `gcloud` CLI installed and authenticated (`gcloud init`).
 

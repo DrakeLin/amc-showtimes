@@ -2,6 +2,8 @@
 
 A small Flask PWA that shows what's playing at AMC Metreon 16 and AMC Kabuki 8 in San Francisco, sorted by Letterboxd rating, with live per-showtime seat status (open / almost sold out / sold out).
 
+Live at **<https://amc-showtimes-114648525819.us-west1.run.app/>** (deployed on Google Cloud Run).
+
 The server returns full-day showtimes; day-of-week and time-range filtering happens entirely client-side (tap a day chip to cycle: all times → custom hours → skipped; choices persist in localStorage). Weekdays default to a 4–9 PM window, weekends to the full day.
 
 ## Repository layout
@@ -11,8 +13,7 @@ amc-showtimes/
 ├── amc.py            # AMC Theatres / Letterboxd fetch + parse helpers (data only)
 ├── server.py         # Flask app: API endpoints, caching, serves static/
 ├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
-├── Dockerfile        # Cloud Run build
-├── Procfile          # Kept for local/alt-PaaS use (gunicorn command)
+├── Dockerfile        # Cloud Run build (gunicorn, single worker)
 └── requirements.txt
 ```
 

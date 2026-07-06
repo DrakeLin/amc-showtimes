@@ -13,7 +13,7 @@ from datetime import date
 
 # -- Configuration -------------------------------------------------------------
 THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
-_THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
+THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
 
 AMC_BASE  = "https://api.amctheatres.com/v2"
 LB_BASE   = "https://letterboxd.com"
@@ -151,7 +151,7 @@ def _titles_plausibly_match(query_title, candidate_title):
 
 # -- HTTP helper ---------------------------------------------------------------
 def _get(url, headers=None, retries=4):
-    req_headers = {"Accept": "application/json", "User-Agent": "amc-showtimes/1.0 (drakelin18@gmail.com)"}
+    req_headers = {"Accept": "application/json", "User-Agent": "amc-showtimes/1.0 (+https://github.com/DrakeLin/amc-showtimes)"}
     if headers:
         req_headers.update(headers)
     req = urllib.request.Request(url, headers=req_headers)
@@ -394,8 +394,9 @@ def get_lb_data(title):
     return (best[0], best[1], None)
 
 
-# -- Formatting helpers ---------------------------------------------------------
-def _fmt_time(dt_str):
+# -- Formatting helpers ----------------------------------------------------------
+def fmt_time(dt_str):
+    """'2026-07-06T19:30:00' -> '7:30 PM' (falls back to raw 'HH:MM' slice)."""
     try:
         h, m = int(dt_str[11:13]), int(dt_str[14:16])
         ampm = "PM" if h >= 12 else "AM"
