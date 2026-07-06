@@ -370,6 +370,17 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+# Browsers probe these at the root regardless of <link> tags; serve the PWA
+# icon instead of 404-noise in the request logs.
+@app.route("/favicon.ico")
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+@app.route("/apple-touch-icon-120x120.png")
+@app.route("/apple-touch-icon-120x120-precomposed.png")
+def favicon():
+    return send_from_directory("static", "icon-192.png")
+
+
 @app.route("/api/showtimes")
 def showtimes():
     try:
