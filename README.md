@@ -32,10 +32,16 @@ THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
 
 ```bash
 pip install -r requirements.txt
-AMC_VENDOR_KEY="your-key" python3 server.py
+AMC_VENDOR_KEY="your-key" FLASK_DEBUG=1 python3 server.py
 ```
 
 Visit `http://localhost:8080`.
+
+`FLASK_DEBUG=1` enables two things for a fast iteration loop:
+- **Auto-reload** — the server restarts itself whenever you save a `.py` file.
+- **Disk-backed schedule cache** (`.dev_schedule_cache.json`, gitignored) — without this, every reload would re-hit AMC + Letterboxd (30-60s). The schedule is written to disk after the first build and reloaded from there on subsequent restarts, still respecting the normal 24h TTL. Delete the file (or call `POST /api/refresh`) to force a real refetch.
+
+Frontend-only changes (`static/`) don't need a restart at all — just reload the page.
 
 ## Deploying
 

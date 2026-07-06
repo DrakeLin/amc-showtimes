@@ -69,7 +69,13 @@ function setSubtitle(text) {
   $("subtitle").textContent = text;
 }
 
-async function loadFills() {
+function setLoadingText(text) {
+  const p = $("loading").querySelector("p");
+  if (p) p.textContent = text;
+}
+
+async function loadFills(movieCount, ts) {
+  setSubtitle(`${movieCount} movies · updated ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · loading seat fill…`);
   try {
     const res = await fetch("/api/fills");
     const data = await res.json();
@@ -83,6 +89,8 @@ async function loadFills() {
     }
   } catch (err) {
     console.error("Failed to load seat fills:", err);
+  } finally {
+    setSubtitle(`${movieCount} movies · updated ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
   }
 }
 
@@ -95,7 +103,12 @@ async function load(forceRefresh = false) {
 
   try {
     if (forceRefresh) {
+      setLoadingText("Refreshing schedule…");
+      setSubtitle("Refreshing…");
       await fetch("/api/refresh", { method: "POST" });
+    } else {
+      setLoadingText("Fetching showtimes…");
+      setSubtitle("Loading…");
     }
 
     const res = await fetch("/api/showtimes");
@@ -111,9 +124,12 @@ async function load(forceRefresh = false) {
     }
 
     const ts = new Date(data.cached_at * 1000);
-    setSubtitle(`${movies.length} movies · updated ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
 
-    if (movies.length) loadFills();
+    if (movies.length) {
+      loadFills(movies.length, ts);
+    } else {
+      setSubtitle(`0 movies · updated ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    }
   } catch (err) {
     $("error").textContent = `Failed to load: ${err.message}`;
     $("error").classList.remove("hidden");

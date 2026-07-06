@@ -133,12 +133,45 @@ def build_schedule():
     return result
 
 
+# Dev-only: persist the schedule cache to disk so the Flask reloader (which
+# restarts the process on every file save) doesn't re-hit AMC/Letterboxd
+# on each edit. Never used in prod (Cloud Run instances are ephemeral anyway).
+DEV_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".dev_schedule_cache.json")
+
+
+def _load_dev_cache():
+    if os.environ.get("FLASK_DEBUG") != "1" or not os.path.exists(DEV_CACHE_FILE):
+        return
+    try:
+        with open(DEV_CACHE_FILE) as f:
+            saved = json.load(f)
+        if time.time() - saved["ts"] < SCHEDULE_CACHE_TTL:
+            _schedule_cache["data"] = saved["data"]
+            _schedule_cache["ts"] = saved["ts"]
+            print("Loaded schedule from dev disk cache", file=sys.stderr)
+    except Exception as exc:
+        print(f"WARN: couldn't load dev cache: {exc}", file=sys.stderr)
+
+
+def _save_dev_cache():
+    if os.environ.get("FLASK_DEBUG") != "1":
+        return
+    try:
+        with open(DEV_CACHE_FILE, "w") as f:
+            json.dump({"data": _schedule_cache["data"], "ts": _schedule_cache["ts"]}, f)
+    except Exception as exc:
+        print(f"WARN: couldn't save dev cache: {exc}", file=sys.stderr)
+
+
 def get_schedule():
     with _schedule_cache_lock:
+        if _schedule_cache["data"] is None:
+            _load_dev_cache()
         if _schedule_cache["data"] is None or time.time() - _schedule_cache["ts"] > SCHEDULE_CACHE_TTL:
             print("Refreshing daily schedule cache...", file=sys.stderr)
             _schedule_cache["data"] = build_schedule()
             _schedule_cache["ts"] = time.time()
+            _save_dev_cache()
         return _schedule_cache["data"]
 
 
@@ -212,4 +245,5 @@ if __name__ == "__main__":
         sys.exit(1)
     amc.VENDOR_KEY = vendor_key
     port = int(os.environ.get("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    debug = os.environ.get("FLASK_DEBUG") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug)
