@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#e50000">
+  <meta name="theme-color" content="#d4a5a0">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="AMC SF">
@@ -23,12 +23,41 @@
       </button>
     </div>
     <p id="subtitle" class="subtitle"></p>
+    <div id="dayFilters" class="day-filters"></div>
+    <p class="filter-caption">Tap a day to set custom hours, tap × to skip it</p>
+    <div class="seat-legend">
+      <span class="legend-item"><span class="legend-dot status-open"></span>open</span>
+      <span class="legend-item"><span class="legend-dot status-almost"></span>almost full</span>
+      <span class="legend-item"><span class="legend-dot status-sold_out"></span>sold out</span>
+    </div>
   </header>
 
   <main>
+    <div id="timePopover" class="time-popover hidden">
+      <div class="time-popover-inner">
+        <span class="time-popover-label"></span>
+        <div class="time-range-group">
+          <div class="time-range-values">
+            <span class="time-range-value time-start-value"></span>
+            <span class="time-popover-sep">–</span>
+            <span class="time-range-value time-end-value"></span>
+          </div>
+          <input class="time-range-slider time-start" type="range" min="0" max="47" step="1">
+          <input class="time-range-slider time-end" type="range" min="0" max="47" step="1">
+          <div class="time-range-ticks">
+            <span>12 AM</span>
+            <span>11:59 PM</span>
+          </div>
+        </div>
+        <button class="time-popover-done">Done</button>
+      </div>
+    </div>
     <div id="loading" class="loading">
       <div class="spinner"></div>
       <p>Fetching showtimes…</p>
+      <div class="progress-bar">
+        <div class="progress-bar-fill"></div>
+      </div>
     </div>
     <div id="error" class="error hidden"></div>
     <div id="movies"></div>

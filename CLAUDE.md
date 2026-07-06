@@ -1,6 +1,6 @@
 # AMC Showtimes
 
-A Flask PWA at drakelin18@gmail.com's phone: shows movies playing 3–8pm at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live seat-fill %.
+A Flask PWA at drakelin18@gmail.com's phone: shows movies playing at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live per-showtime seat status. The server returns full-day showtimes (with a parallel 24h `times24` list per showing); day-of-week and time-range filtering happens client-side (day chips: each tap cycles all times → custom hours (time-range popover) → skipped; persisted in localStorage).
 
 - **`amc.py`** — shared AMC Theatres / Letterboxd fetch + parse helpers (no CLI, no rendering — just data fetching)
 - **`server.py`** — Flask API (schedule + fill endpoints) + serves `static/`
@@ -14,11 +14,31 @@ Three tiers, deliberately different TTLs because these values change at differen
 
 | Data | Cache | Why |
 |---|---|---|
-| Schedule (movies/times) | 24h, in-memory | Rarely changes within a day |
-| Letterboxd rating/synopsis | 7 days, in-memory, keyed by title | Essentially static |
-| Seat fill % | None — fetched fresh every page load via `/api/fills` | The one fast-moving number |
+| Schedule (movies + full-day times/times24) | 24h, in-memory | Rarely changes within a day; day/time filtering is client-side |
+| Letterboxd rating/synopsis/`lb_url` | 7 days, in-memory, keyed by title | Essentially static; `lb_url` is the film page the data came from, linked from the star pill |
+| Movie metadata (poster/director/cast) | 7 days, in-memory, keyed by AMC movieId | Essentially static |
+| Seat status | None — fetched fresh every page load via `/api/fills` | The one fast-moving value |
 
-All caches are in-memory, no persistent volume — Cloud Run instances are ephemeral by design, so the cache resets whenever the instance scales to zero and cold-starts again (idle timeout, default ~15 min). That's the tradeoff for staying on Cloud Run's free tier. Refresh button busts the schedule cache; `POST /api/refresh?full=1` also busts the Letterboxd cache.
+Seat status is an enum, not a percentage: AMC's public API exposes no seat counts (verified live), only per-showtime `isSoldOut`/`isAlmostSoldOut` flags. `/api/fills` returns, per `fill_key`, a `{"HH:MM": "sold_out" | "almost" | "open"}` map (same 24h keys as `times24`); the frontend colors each time pill accordingly.
+
+All caches are in-memory, no persistent volume — Cloud Run instances are ephemeral by design, so the cache resets whenever the instance scales to zero and cold-starts again (idle timeout, default ~15 min). That's the tradeoff for staying on Cloud Run's free tier. Refresh button busts the schedule cache; `POST /api/refresh?full=1` also busts the Letterboxd and movie-metadata caches.
+
+A daemon thread in `server.py` rebuilds the schedule cache every 12h (skips a cycle if a build is already holding the cache lock; logs to stderr). Note that with `--min-instances 0` this thread only helps while an instance happens to be warm — see the Cloud Scheduler section below for cold coverage.
+
+## Scheduled refresh (Cloud Scheduler — configure manually, not yet set up)
+
+AMC posts the new week's showtimes by Wednesday afternoon. A Cloud Scheduler job hitting the refresh endpoint twice daily both refreshes the cache and pre-warms a cold instance (which the in-process 12h thread can't do at min-instances 0):
+
+```bash
+gcloud scheduler jobs create http amc-showtimes-refresh \
+  --schedule "0 5,17 * * *" \
+  --time-zone "America/Los_Angeles" \
+  --uri "https://<service-url>/api/refresh" \
+  --http-method POST \
+  --location us-west1
+```
+
+The 17:00 run catches Wednesday's weekly showtime drop; the 05:00 run keeps mornings fresh.
 
 ## Deploying (Google Cloud Run)
 
@@ -45,9 +65,16 @@ To redeploy after code changes, just re-run the same `gcloud run deploy` command
 
 ## TODO / ideas (not yet built, unvalidated)
 
-- [ ] Seat fill: `_seat_fill()` in `server.py` reads `totalSeatsCount`/`seatsRemaining` fields that haven't been confirmed present on AMC's public API response — verify against a live response before trusting the numbers.
 - [ ] Pull-to-refresh gesture on mobile instead of only the header button.
 - [ ] Push notifications when a highly-rated movie gets added to the week's schedule (would need a Web Push backend + VAPID keys — adds real infra, not free).
 - [ ] Theatre picker — currently hardcoded to Metreon + Kabuki; could extend `THEATRES` and add a UI toggle.
 - [ ] Show/skip movies already seen (would need a small persisted "seen" list, e.g. localStorage).
 - [ ] Trailer links (YouTube search link or TMDB API) per movie card.
+
+Defaults and UI notes:
+
+- Weekdays (Mon–Fri) default to 4:00 PM–9:00 PM and are pre-filtered on first load.
+- Weekends (Sat–Sun) default to full day (00:00–23:59) and remain open on first load.
+- Time-range semantics: start==end is treated as full-day; default full-day sentinel is `23:59`.
+- Letterboxd badge: if a Letterboxd page exists we show `Letterboxd: ★ <rating>`; if page exists but rating is unavailable we show `Letterboxd: ★ N/A`; if no Letterboxd page is found we show plain `N/A`.
+- The time picker UI uses two knobs; sliders are spaced for touch and labels show concise AM/PM (e.g., `3 AM – 4:30 PM`).
