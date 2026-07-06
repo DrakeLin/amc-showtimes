@@ -1,11 +1,12 @@
 # AMC Showtimes
 
-Two things live in this repo, sharing `amc_notify.py`'s AMC/Letterboxd helpers:
+A Flask PWA at drakelin18@gmail.com's phone: shows movies playing 3–8pm at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live seat-fill %.
 
-1. **`amc_notify.py`** — standalone CLI for the weekly Gmail digest routine (Tue–Thu evening showtimes). See `README.md` for how the routine is configured.
-2. **`server.py` + `static/`** — a Flask PWA at drakelin18@gmail.com's phone: shows movies playing 3–8pm at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live seat-fill %.
+- **`amc.py`** — shared AMC Theatres / Letterboxd fetch + parse helpers (no CLI, no rendering — just data fetching)
+- **`server.py`** — Flask API (schedule + fill endpoints) + serves `static/`
+- **`static/`** — PWA frontend (HTML/CSS/JS, manifest, service worker)
 
-Don't read `amc_notify.py` or `server.py` in full unless you're touching their logic — grep for the function you need first.
+Don't read `amc.py` or `server.py` in full unless you're touching their logic — grep for the function you need first.
 
 ## Caching model (server.py)
 

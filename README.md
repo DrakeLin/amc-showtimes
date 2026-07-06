@@ -1,112 +1,56 @@
 # AMC SF Showtimes
 
-Weekly digest routine: evening showtimes at AMC Metreon 16 and AMC Kabuki 8 for the upcoming Tue–Thu, enriched with Letterboxd ratings, delivered as a Gmail draft.
-
-## What this does
-
-Every week the routine:
-1. Hits the AMC Theatres API for showtimes at both SF locations on the next Tue/Wed/Thu
-2. Filters to evening showtimes (4–9 PM by default)
-3. Looks up each movie's Letterboxd rating
-4. Renders an HTML table digest sorted by Letterboxd rating
-5. Creates a Gmail draft to drakelin18@gmail.com — nothing is sent automatically
+A small Flask PWA: movies playing 3–8pm at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live seat-fill %.
 
 ## Repository layout
 
 ```
 amc-showtimes/
-├── amc_notify.py    # The script. Stdlib only.
-├── README.md
-└── .gitignore
+├── amc.py            # Shared AMC Theatres / Letterboxd fetch + parse helpers
+├── server.py         # Flask app: schedule + fill API, serves static/
+├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
+├── Procfile          # Railway process command
+└── requirements.txt
 ```
-
-No dependencies, no virtualenv, no build step.
 
 ## Configuration
 
 | Var | Required | Default | Purpose |
 |-----|----------|---------|---------|
 | `AMC_VENDOR_KEY` | yes | — | AMC Theatres API vendor key |
-| `AMC_EVENING_START` | no | `16` | Earliest hour (24h) to include |
-| `AMC_EVENING_END` | no | `21` | Latest hour, exclusive |
+| `AMC_EVENING_START` | no | `15` | Earliest hour (24h) to include |
+| `AMC_EVENING_END` | no | `20` | Latest hour, exclusive |
+| `PORT` | no | `8080` | Set automatically by Railway |
 
-The AMC key is set as a routine secret. Never commit it.
-
-Theatres are hardcoded in `amc_notify.py`:
+Theatres are hardcoded in `amc.py`:
 ```python
 THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
-```
-
-## Routine setup (claude.ai/code/routines)
-
-1. **New routine** → name it "AMC SF Weekly Digest"
-2. **Repository**: `DrakeLin/amc-showtimes`, read-only
-3. **Environment variables**: add `AMC_VENDOR_KEY`
-4. **Network allowlist**: `api.amctheatres.com` and `letterboxd.com`
-5. **Connectors**: enable Gmail
-6. **Schedule**: weekly (Sunday evening recommended)
-7. **Prompt**:
-
-```
-Run:
-python3 amc_notify.py 2>/tmp/err.log
-
-If the exit code is non-zero, print the contents of /tmp/err.log and stop.
-
-Parse the JSON printed to stdout. It has two keys:
-- "subject": the email subject line
-- "html": the HTML email body
-
-Use the Gmail connector to create a draft:
-To: drakelin18@gmail.com
-subject: [the "subject" value]
-body: [the "html" value]
-(send as HTML, not plain text)
 ```
 
 ## Local development
 
 ```bash
-cd ~/Documents/test/amc-showtimes
-AMC_VENDOR_KEY="your-key" python3 amc_notify.py 2>/tmp/err.log
-echo "Exit: $?"
-cat /tmp/err.log
+pip install -r requirements.txt
+AMC_VENDOR_KEY="your-key" python3 server.py
 ```
 
-Check the output:
-```bash
-python3 amc_notify.py 2>/dev/null | python3 -m json.tool
-```
+Visit `http://localhost:8080`.
 
-## How the script works
+## Deploying
 
-**Date selection** — `get_target_dates()` returns the upcoming Tue/Wed/Thu strictly in the future. If today is Wednesday, it returns next week's Tue/Wed/Thu.
-
-**AMC pagination** — `fetch_showtimes()` walks `pageNumber` until the running total reaches `count`. Hard-capped at 20 pages.
-
-**Evening filter** — `_evening()` parses `showDateTimeLocal` and checks the hour against `EVENING_START` (inclusive) and `EVENING_END` (exclusive).
-
-**Format detection** — `get_format()` prefers `premiumFormat` from the API, then scans `attributes` for known codes (IMAX, Dolby, etc).
-
-**Letterboxd slugs** — `lb_slug()` strips format markers, lowercases, removes non-alphanumerics. `get_lb_rating()` tries up to four candidate URLs (`/film/{slug}/`, then with current year and two prior years). Rating is parsed from the `twitter:data2` meta tag, with a JSON-LD fallback. 0.3s sleep between requests.
-
-**HTTP retries** — `_get()` retries on 5xx, 429, and network errors with exponential backoff. 4xx errors (other than 429) raise immediately.
-
-**Output** — `main()` prints a single JSON line to stdout: `{"subject": "...", "html": "..."}`. All progress logging goes to stderr.
+See `CLAUDE.md` for the Railway deploy steps and caching model.
 
 ## Failure modes
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `ERROR: AMC_VENDOR_KEY env var is not set` | Env var missing | Add it under routine environment settings |
-| All AMC requests fail with timeout | Network not allowlisted | Add `api.amctheatres.com` to routine's network allowlist |
+| `ERROR: AMC_VENDOR_KEY env var is not set` | Env var missing | Set it in Railway → Variables |
+| Schedule loads but no movies | Network/theatre IDs wrong, or nothing playing 3-8pm | Check `THEATRES` IDs in `amc.py`, try widening `AMC_EVENING_START/END` |
 | AMC returns 401/403 | Vendor key invalid | Regenerate key, update env var |
-| All Letterboxd ratings are N/A | Letterboxd HTML changed | Update `_LB_RATING_RE` and `_LB_LD_RE` |
-| Some movies show N/A | Slug mismatch | Extend candidate list in `get_lb_rating` |
-| No Gmail draft appears | Connector not enabled or auth lapsed | Re-authorize Gmail in routine config |
+| All Letterboxd ratings are N/A | Letterboxd HTML changed | Update `_LB_RATING_RE` / `_LB_LD_RE` in `amc.py` |
+| Seat fill always shows `…` | AMC response doesn't include `totalSeatsCount`/`seatsRemaining` (unverified — see CLAUDE.md TODOs) | Inspect a live `/api/fills` response, adjust `_seat_fill()` in `server.py` |
 
 ## Known fragility
 
 - **Letterboxd** is unofficial scraping. If they restructure the page, all ratings silently go N/A.
 - **AMC API** is stable in practice but undocumented publicly. Schema changes will surface as `KeyError`.
-- **Routine sandbox is ephemeral** — each run starts fresh, no cross-run caching.

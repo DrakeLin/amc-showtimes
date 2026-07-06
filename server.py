@@ -10,9 +10,8 @@ from datetime import date, timedelta
 
 from flask import Flask, jsonify, request, send_from_directory
 
-# Reuse helpers from amc_notify
 sys.path.insert(0, os.path.dirname(__file__))
-import amc_notify as amc
+import amc
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
