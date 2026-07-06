@@ -15,11 +15,6 @@ import amc
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
-# Historical server-side evening window; no longer used to filter, kept only
-# as the default hint for the frontend's initial (unfiltered) UI state.
-SHOW_START = int(os.environ.get("AMC_EVENING_START", "15"))
-SHOW_END   = int(os.environ.get("AMC_EVENING_END",   "20"))
-
 # Schedule (movies/times/ratings) changes rarely -> cache daily.
 _schedule_cache: dict = {"data": None, "ts": 0}
 _schedule_cache_lock = threading.Lock()

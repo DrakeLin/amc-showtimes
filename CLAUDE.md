@@ -1,12 +1,14 @@
 # AMC Showtimes
 
-A Flask PWA at drakelin18@gmail.com's phone: shows movies playing at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live per-showtime seat status. The server returns full-day showtimes (with a parallel 24h `times24` list per showing); day-of-week and time-range filtering happens client-side (day chips: each tap cycles all times → custom hours (time-range popover) → skipped; persisted in localStorage).
+A personal-scale Flask PWA (installed to the owner's phone home screen): shows movies playing at AMC Metreon 16 / Kabuki 8, sorted by Letterboxd rating, with live per-showtime seat status. The server returns full-day showtimes (with a parallel 24h `times24` list per showing); day-of-week and time-range filtering happens client-side (day chips: each tap cycles all times → custom hours (time-range popover) → skipped; persisted in localStorage).
 
 - **`amc.py`** — shared AMC Theatres / Letterboxd fetch + parse helpers (no CLI, no rendering — just data fetching)
 - **`server.py`** — Flask API (schedule + fill endpoints) + serves `static/`
 - **`static/`** — PWA frontend (HTML/CSS/JS, manifest, service worker)
 
 Don't read `amc.py` or `server.py` in full unless you're touching their logic — grep for the function you need first.
+
+Repo docs: `README.md` covers setup/API/config for humans; `CONTRIBUTING.md` has contributor ground rules (no new deps without discussion, keep scrape rate limits, secrets via env var only); license is MIT (`LICENSE`). Keep README/CONTRIBUTING in sync when changing endpoints, config, or the caching model. The only runtime deps are `flask` + `gunicorn`; all scraping uses stdlib `urllib`.
 
 ## Caching model (server.py)
 
