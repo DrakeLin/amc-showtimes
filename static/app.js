@@ -480,16 +480,20 @@ async function load(forceRefresh = false) {
       setLoadingText("Refreshing schedule…");
       setSubtitle("Refreshing…");
       setLoadingProgress(0);
+      // Start progress polling BEFORE awaiting the refresh: /api/refresh
+      // rebuilds synchronously (30-60s when server caches are cold), and
+      // the polls are what keep the loading UI alive during it.
+      pollStatus();
       await fetch("/api/refresh", { method: "POST" });
     } else {
       setLoadingText("Fetching showtimes…");
       setSubtitle("Loading…");
       setLoadingProgress(0);
+      // Fire-and-forget: poll /api/status for progress text while the main
+      // fetch is in flight; it stops on its own once the build reports "done".
+      pollStatus();
     }
 
-    // Fire-and-forget: poll /api/status for progress text while the main
-    // fetch is in flight; it stops on its own once the build reports "done".
-    pollStatus();
     const res = await fetch("/api/showtimes");
     const data = await res.json();
 
