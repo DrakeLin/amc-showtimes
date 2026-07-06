@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import date, timedelta
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 # Reuse helpers from amc_notify
 sys.path.insert(0, os.path.dirname(__file__))
@@ -22,7 +22,25 @@ SHOW_END   = int(os.environ.get("AMC_EVENING_END",   "20"))
 
 _cache: dict = {"data": None, "ts": 0}
 _cache_lock = threading.Lock()
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 3600  # 1 hour (showtimes/seat fills change often)
+
+_lb_cache: dict = {}  # title -> {"rating": str, "synopsis": str, "ts": float}
+_lb_cache_lock = threading.Lock()
+LB_CACHE_TTL = 7 * 24 * 3600  # 1 week (ratings/synopses rarely change)
+
+
+def get_lb_data_cached(title):
+    with _lb_cache_lock:
+        entry = _lb_cache.get(title)
+        if entry is not None and time.time() - entry["ts"] < LB_CACHE_TTL:
+            return entry["rating"], entry["synopsis"]
+
+    rating, synopsis = amc.get_lb_data(title)
+
+    with _lb_cache_lock:
+        _lb_cache[title] = {"rating": rating, "synopsis": synopsis, "ts": time.time()}
+
+    return rating, synopsis
 
 
 def _evening(showtime):
@@ -80,7 +98,7 @@ def build_showtimes():
             seen_lb: dict = {}
             for (title, fmt), g in groups.items():
                 if title not in seen_lb:
-                    rating, synopsis = amc.get_lb_data(title)
+                    rating, synopsis = get_lb_data_cached(title)
                     seen_lb[title] = (rating, synopsis)
                 lb_rating, synopsis = seen_lb[title]
 
@@ -140,6 +158,9 @@ def showtimes():
 def refresh():
     with _cache_lock:
         _cache["data"] = None
+    if request.args.get("full") == "1":
+        with _lb_cache_lock:
+            _lb_cache.clear()
     return jsonify({"ok": True})
 
 
