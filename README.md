@@ -14,7 +14,7 @@ amc-showtimes/
 ├── server.py         # Flask app: API endpoints, caching, serves static/
 ├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
 ├── tests/            # unit tests (stdlib unittest, no network)
-├── Dockerfile        # Cloud Run build (gunicorn, single worker)
+├── Dockerfile        # Cloud Run build (gunicorn, 1 worker × 8 threads)
 └── requirements.txt
 ```
 
@@ -25,7 +25,7 @@ amc-showtimes/
 | `/api/showtimes` | GET | Full-day schedule: movies, ratings, showtimes (12h `times` + parallel 24h `times24`) |
 | `/api/fills` | GET | Fresh per-showtime seat status: `{"HH:MM": "sold_out" \| "almost" \| "open"}` per `fill_key` |
 | `/api/status` | GET | Build progress while the schedule cache is (re)building |
-| `/api/refresh` | POST | Bust the schedule cache; `?full=1` also busts Letterboxd + movie-metadata caches |
+| `/api/refresh` | POST | Rebuild the schedule synchronously (30–60s when server caches are cold) and persist the GCS snapshot; `?full=1` also busts Letterboxd + movie-metadata caches |
 
 Seat status is an enum, not a percentage — AMC's public API exposes no seat counts, only `isSoldOut`/`isAlmostSoldOut` flags. It is fetched fresh on every page load; everything else is cached in-memory (schedule 24h, Letterboxd + movie metadata 7 days). See [CLAUDE.md](CLAUDE.md) for the full caching model.
 
@@ -38,7 +38,6 @@ Seat status is an enum, not a percentage — AMC's public API exposes no seat co
 | `FLASK_DEBUG` | no | — | Set to `1` for the local dev loop (see below) |
 | `GCS_BUCKET` | no | — | GCS bucket for the schedule snapshot; unset disables it. Lets cold-started Cloud Run instances load the last built schedule (<1s) instead of re-scraping (30–60s) |
 | `AMC_THEATRES` | no | SF: Metreon 16 + Kabuki 8 | Theatres to scrape, as `Name:id,Name:id` (e.g. `AMC Empire 25:375`); ids are in amctheatres.com URL slugs |
-
 
 ## Local development
 
@@ -65,7 +64,12 @@ No network, no env vars, runs in well under a second. Coverage is the parsing/cl
 
 ## Deploying
 
-The app runs on Google Cloud Run (free at this traffic scale). See [CLAUDE.md](CLAUDE.md) for the deploy command, the reasoning behind Cloud Run over other hosts, and the optional Cloud Scheduler refresh job.
+The app runs on Google Cloud Run (free at this traffic scale), with two optional pieces of supporting infra:
+
+- a **GCS bucket** holding a ~70KB snapshot of the built schedule, so cold-started instances skip the 30–60s rebuild (`GCS_BUCKET` env var)
+- a **Cloud Scheduler job** POSTing `/api/refresh` twice daily, which re-scrapes and rewrites that snapshot
+
+See [CLAUDE.md](CLAUDE.md) for the deploy command, bucket setup, the scheduler job, and the reasoning behind Cloud Run over other hosts. For the installed-app experience, open the deployed URL on your phone and use Safari → Share → **Add to Home Screen**.
 
 ## Failure modes
 
@@ -76,6 +80,8 @@ The app runs on Google Cloud Run (free at this traffic scale). See [CLAUDE.md](C
 | AMC returns 401/403 | Vendor key invalid | Regenerate key, update env var |
 | All Letterboxd ratings are N/A | Letterboxd HTML changed | Update `_LB_RATING_RE` / `_LB_LD_RE` in `amc.py` |
 | Seat status looks wrong | AMC changed the `isSoldOut`/`isAlmostSoldOut` flags | Inspect a live `/api/fills` response, adjust `_seat_status()` in `server.py` |
+| Refresh takes ~a minute | Expected: `/api/refresh` re-scrapes synchronously; slowest with `?full=1` or cold server caches | Progress bar is live via `/api/status`; just wait |
+| Stale UI after deploying frontend changes | Service worker serves the cached shell | Bump `CACHE` in `static/sw.js`; installed PWAs update on their second launch |
 
 ## Known fragility
 
