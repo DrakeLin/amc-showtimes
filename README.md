@@ -39,7 +39,6 @@ Seat status is an enum, not a percentage — AMC's public API exposes no seat co
 | `GCS_BUCKET` | no | — | GCS bucket for the schedule snapshot; unset disables it. Lets cold-started Cloud Run instances load the last built schedule (<1s) instead of re-scraping (30–60s) |
 | `AMC_THEATRES` | no | SF: Metreon 16 + Kabuki 8 | Theatres to scrape, as `Name:id,Name:id` (e.g. `AMC Empire 25:375`); ids are in amctheatres.com URL slugs |
 
-The UI shows a theatre chip per configured theatre (when there's more than one); tapping toggles that theatre's showtimes on/off, persisted in localStorage.
 
 ## Local development
 

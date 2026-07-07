@@ -76,36 +76,6 @@ h1 {
 main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; position: relative; }
 
 /* Day filter chips */
-.theatre-filters {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.theatre-filters:empty {
-  display: none;
-}
-
-.theatre-chip {
-  border: 1px solid var(--accent);
-  background: var(--surface);
-  color: inherit;
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 600;
-  border-radius: 999px;
-  padding: 4px 12px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
-}
-
-.theatre-chip.off {
-  opacity: 0.45;
-  border-color: var(--text2);
-  text-decoration: line-through;
-}
-
 .day-filters {
   display: flex;
   gap: 6px;
