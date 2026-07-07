@@ -37,12 +37,9 @@ Seat status is an enum, not a percentage — AMC's public API exposes no seat co
 | `PORT` | no | `8080` | Set automatically by Cloud Run |
 | `FLASK_DEBUG` | no | — | Set to `1` for the local dev loop (see below) |
 | `GCS_BUCKET` | no | — | GCS bucket for the schedule snapshot; unset disables it. Lets cold-started Cloud Run instances load the last built schedule (<1s) instead of re-scraping (30–60s) |
+| `AMC_THEATRES` | no | SF: Metreon 16 + Kabuki 8 | Theatres to scrape, as `Name:id,Name:id` (e.g. `AMC Empire 25:375`); ids are in amctheatres.com URL slugs |
 
-Theatres are hardcoded in `amc.py`:
-```python
-THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
-```
-A theatre picker is on the wishlist — see the TODO list in [CLAUDE.md](CLAUDE.md).
+The UI shows a theatre chip per configured theatre (when there's more than one); tapping toggles that theatre's showtimes on/off, persisted in localStorage.
 
 ## Local development
 

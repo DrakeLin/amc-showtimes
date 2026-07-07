@@ -12,8 +12,35 @@ import urllib.request
 from datetime import date
 
 # -- Configuration -------------------------------------------------------------
-THEATRES = {"AMC Metreon 16": 2325, "AMC Kabuki 8": 4145}
+def _parse_theatres(spec):
+    """Parse the AMC_THEATRES env var ("Name:id,Name:id") into {name: id}.
+    Malformed entries are skipped; an empty/invalid spec returns {} so the
+    caller can fall back to the defaults."""
+    theatres = {}
+    for part in spec.split(","):
+        name, _, tid = part.rpartition(":")
+        name, tid = name.strip(), tid.strip()
+        if name and tid.isdigit():
+            theatres[name] = int(tid)
+    return theatres
+
+
+# Override with e.g. AMC_THEATRES="AMC Empire 25:375,AMC Lincoln Square 13:2206"
+# (find theatre ids in the URL slugs on amctheatres.com). Defaults to SF.
+THEATRES = _parse_theatres(os.environ.get("AMC_THEATRES", "")) or {
+    "AMC Metreon 16": 2325,
+    "AMC Kabuki 8": 4145,
+}
 THEATRE_SHORT = {"AMC Kabuki 8": "Kabuki", "AMC Metreon 16": "Metreon"}
+
+
+def theatre_short(name):
+    """Compact display name: explicit mapping first, else strip the "AMC "
+    prefix and trailing screen count ("AMC Empire 25" -> "Empire")."""
+    if name in THEATRE_SHORT:
+        return THEATRE_SHORT[name]
+    stripped = re.sub(r"\s+\d+$", "", re.sub(r"^AMC\s+", "", name)).strip()
+    return stripped or name
 
 AMC_BASE  = "https://api.amctheatres.com/v2"
 LB_BASE   = "https://letterboxd.com"

@@ -79,9 +79,9 @@ To redeploy after code changes, just re-run the same `gcloud run deploy` command
 
 - [ ] Pull-to-refresh gesture on mobile instead of only the header button.
 - [ ] Push notifications when a highly-rated movie gets added to the week's schedule (would need a Web Push backend + VAPID keys — adds real infra, not free).
-- [ ] Theatre picker — currently hardcoded to Metreon + Kabuki; could extend `THEATRES` and add a UI toggle.
-- [ ] Show/skip movies already seen (would need a small persisted "seen" list, e.g. localStorage).
-- [ ] Trailer links (YouTube search link or TMDB API) per movie card.
+- [x] Theatre picker — theatre set is env-configurable (`AMC_THEATRES="Name:id,..."`); the frontend renders a toggle chip per theatre (hidden when only one), persisted in localStorage.
+- [x] ~~Show/skip movies already seen~~ — covered in practice by the per-movie collapsible showtimes (collapse = skip, persisted per title).
+- [ ] Trailer links (YouTube search link or TMDB API) per movie card. (Judged not worth it for now, along with pull-to-refresh and push notifications.)
 
 Defaults and UI notes:
 

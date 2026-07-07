@@ -49,6 +49,29 @@ class CleanTitleTests(unittest.TestCase):
         self.assertEqual(amc.clean_title("IMAX"), "IMAX")
 
 
+class TheatreConfigTests(unittest.TestCase):
+    def test_parse_theatres(self):
+        self.assertEqual(
+            amc._parse_theatres("AMC Empire 25:375, AMC Lincoln Square 13:2206"),
+            {"AMC Empire 25": 375, "AMC Lincoln Square 13": 2206},
+        )
+
+    def test_parse_skips_malformed_entries(self):
+        self.assertEqual(amc._parse_theatres("no-id,Good:12,:5,Bad:xyz"), {"Good": 12})
+
+    def test_parse_empty_returns_empty(self):
+        self.assertEqual(amc._parse_theatres(""), {})
+
+    def test_theatre_short_explicit_mapping(self):
+        self.assertEqual(amc.theatre_short("AMC Metreon 16"), "Metreon")
+
+    def test_theatre_short_derived(self):
+        self.assertEqual(amc.theatre_short("AMC Empire 25"), "Empire")
+
+    def test_theatre_short_non_amc_name_untouched(self):
+        self.assertEqual(amc.theatre_short("Roxie"), "Roxie")
+
+
 class TitleMatchTests(unittest.TestCase):
     def test_exact(self):
         self.assertTrue(amc._titles_plausibly_match("Citizen Kane", "Citizen Kane"))

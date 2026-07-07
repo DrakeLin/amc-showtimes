@@ -62,6 +62,48 @@ function isMovieShowingsVisible(title) {
 let filterState = loadFilterState();
 let activePopoverDow = null;
 
+// -- Theatre picker: hide/show theatres client-side, persisted like the day
+// filters. Chips are built from whatever theatres the schedule contains, so
+// deployments with a different AMC_THEATRES set need no frontend changes.
+const THEATRE_STORE_KEY = "theatreFilters.v1";
+
+function loadTheatreState() {
+  try {
+    return JSON.parse(localStorage.getItem(THEATRE_STORE_KEY) || "{}");
+  } catch (err) {
+    return {};
+  }
+}
+
+let theatreState = loadTheatreState(); // short name -> false when hidden
+
+function isTheatreEnabled(short) {
+  return theatreState[short] !== false;
+}
+
+function renderTheatreFilters(shorts) {
+  const container = $("theatreFilters");
+  if (shorts.length < 2) {
+    container.innerHTML = ""; // nothing to pick with a single theatre
+    return;
+  }
+  container.innerHTML = shorts.map(short => `
+    <button class="theatre-chip${isTheatreEnabled(short) ? "" : " off"}" type="button" data-theatre="${escapeHtml(short)}">
+      ${escapeHtml(short)}
+    </button>
+  `).join("");
+
+  container.querySelectorAll(".theatre-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const short = btn.dataset.theatre;
+      theatreState[short] = !isTheatreEnabled(short);
+      localStorage.setItem(THEATRE_STORE_KEY, JSON.stringify(theatreState));
+      btn.classList.toggle("off", !isTheatreEnabled(short));
+      applyFilters();
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Time-range popover (two-knob slider, opened from a day chip)
 // ---------------------------------------------------------------------------
@@ -249,7 +291,9 @@ function applyFilters() {
         const entry = filterState[dow];
         let venueVisible = false;
 
-        if (entry.mode !== "rejected") {
+        if (!isTheatreEnabled(venueEl.dataset.theatre)) {
+          venueEl.querySelectorAll(".time-chip").forEach(chip => chip.classList.add("hidden"));
+        } else if (entry.mode !== "rejected") {
           venueEl.querySelectorAll(".time-chip").forEach(chip => {
             const t24 = chip.dataset.t24;
             const visible = entry.mode === "open" || timeInRange(t24, entry.start, entry.end);
@@ -325,7 +369,7 @@ function renderMovie(movie) {
         const times24 = s.times24 || [];
         const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${t}</span>`).join("");
         return `
-          <div class="venue-block" data-fill-key="${s.fill_key}" data-dow="${dow}">
+          <div class="venue-block" data-fill-key="${s.fill_key}" data-dow="${dow}" data-theatre="${escapeHtml(s.theatre_short)}">
             <div>
               <div class="showing-venue">${s.theatre_short}${fmt}</div>
               <div class="times">${times}</div>
@@ -504,6 +548,9 @@ async function load(forceRefresh = false) {
       $("movies").innerHTML = `<div class="empty">No showtimes found for the next 7 days.</div>`;
     } else {
       $("movies").innerHTML = movies.map(renderMovie).join("");
+      renderTheatreFilters([...new Set(
+        movies.flatMap(m => m.showings.map(s => s.theatre_short))
+      )].sort());
       applyFilters();
       attachMovieToggleHandlers();
     }

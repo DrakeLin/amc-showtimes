@@ -125,7 +125,7 @@ def build_schedule():
         for show_date in dates:
             step += 1
             pct = int(5 + 90 * (step - 1) / total_steps)
-            short = amc.THEATRE_SHORT.get(theatre_name, theatre_name)
+            short = amc.theatre_short(theatre_name)
             day = show_date.strftime("%a %-m/%-d")
             _set_build_status("amc", f"Showtimes: {short} · {day}", pct)
             try:
@@ -182,7 +182,7 @@ def build_schedule():
                     "date": show_date.isoformat(),
                     "date_label": show_date.strftime("%a %-m/%-d"),
                     "theatre": theatre_name,
-                    "theatre_short": amc.THEATRE_SHORT.get(theatre_name, theatre_name),
+                    "theatre_short": amc.theatre_short(theatre_name),
                     "format": fmt,
                     "times": [g["times"][i] for i in order],
                     "times24": [g["times24"][i] for i in order],
