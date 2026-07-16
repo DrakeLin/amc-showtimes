@@ -2,8 +2,10 @@
 # Odyssey 70mm middle-seat watch at AMC Metreon (theatre 2325).
 #
 # Finds every 70mm showtime of The Odyssey in the next $DAYS days via the AMC
-# vendor API, scrapes each showtime's seat map from amctheatres.com, and
-# prints one line per showtime:
+# vendor API (theatre $THEATRE, default 2325 = Metreon; 2116 = Lincoln Square),
+# scrapes each showtime's seat map from amctheatres.com, and prints one line
+# per showtime. Set WATCH_IDS="id id ..." to watch only those showtime ids
+# (any format) instead of every 70mm show:
 #   <showtimeId> <local datetime> middle=<seats|none> free=<n>/<total>
 # plus a "NOTIFY <when>: middle seats now available: ..." line for every show
 # that gained center-block seats since the previous run. State lives in
@@ -16,6 +18,8 @@ set -uo pipefail
 cd "$(dirname "$0")"
 REPO="$(cd .. && pwd)"
 DAYS="${DAYS:-7}"
+THEATRE="${THEATRE:-2325}"
+WATCH_IDS="${WATCH_IDS:-}"
 STATE=odyssey_state.json
 : "${AMC_VENDOR_KEY:?set AMC_VENDOR_KEY}"
 
@@ -37,20 +41,27 @@ if [ -n "${HTTPS_PROXY:-}" ] && [ -f /root/.ccr/ca-bundle.crt ]; then
 fi
 
 # --- find 70mm Odyssey showtimes ------------------------------------------
-SHOWS=$(REPO="$REPO" DAYS="$DAYS" python3 - <<'EOF'
+SHOWS=$(REPO="$REPO" DAYS="$DAYS" THEATRE="$THEATRE" WATCH_IDS="$WATCH_IDS" python3 - <<'EOF'
 import datetime, json, os, sys
 sys.path.insert(0, os.environ["REPO"])
 import amc
+want_ids = set(os.environ["WATCH_IDS"].split())
 out = []
 today = datetime.date.today()
 for i in range(int(os.environ["DAYS"])):
     d = today + datetime.timedelta(days=i)
     try:
-        raw = amc.fetch_showtimes(2325, d)
+        raw = amc.fetch_showtimes(int(os.environ["THEATRE"]), d)
     except Exception:
         continue
     for s in raw:
-        if "odyssey" in (s.get("movieName") or "").lower() and "70mm" in (s.get("premiumFormat") or ""):
+        if "odyssey" not in (s.get("movieName") or "").lower():
+            continue
+        if want_ids:
+            keep = str(s["id"]) in want_ids
+        else:
+            keep = "70mm" in (s.get("premiumFormat") or "")
+        if keep:
             out.append({"id": str(s["id"]), "when": s["showDateTimeLocal"]})
 print(json.dumps(out))
 EOF
