@@ -61,5 +61,43 @@ class GcsSnapshotTests(unittest.TestCase):
         server._save_gcs_snapshot()
 
 
+class WatchEndpointTests(unittest.TestCase):
+    def setUp(self):
+        self.client = server.app.test_client()
+
+    def test_missing_title_is_400(self):
+        resp = self.client.get("/api/watch")
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["ok"])
+
+    def test_bad_start_is_400(self):
+        resp = self.client.get("/api/watch?title=odyssey&start=not-a-date")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_matches_title_substring_with_status(self):
+        fake = [{
+            "movieTitle": "The Odyssey",
+            "showDateTimeLocal": "2027-07-16T19:00:00",
+            "isSoldOut": True,
+        }, {
+            "movieTitle": "Something Else",
+            "showDateTimeLocal": "2027-07-16T20:00:00",
+        }]
+        orig = server.amc.fetch_showtimes
+        server.amc.fetch_showtimes = lambda tid, d: fake
+        try:
+            data = self.client.get(
+                "/api/watch?title=odyssey&start=2027-07-16&days=1").get_json()
+        finally:
+            server.amc.fetch_showtimes = orig
+        self.assertTrue(data["ok"])
+        # One match per configured theatre; the non-matching title is dropped.
+        self.assertEqual(len(data["showtimes"]), len(server.amc.THEATRES))
+        first = data["showtimes"][0]
+        self.assertEqual(first["title"], "The Odyssey")
+        self.assertEqual(first["time"], "19:00")
+        self.assertEqual(first["status"], "sold_out")
+
+
 if __name__ == "__main__":
     unittest.main()
