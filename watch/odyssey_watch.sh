@@ -9,8 +9,8 @@
 #   <showtimeId> <local datetime> middle=<seats|none> free=<n>/<total>
 # plus a "NOTIFY <when>: middle seats now available: ..." line for every show
 # that gained center-block seats since the previous run. State lives in
-# odyssey_state.json next to this script; if the file changed, it is
-# committed and pushed so runs in fresh clones share a baseline.
+# odyssey_state.json next to this script (gitignored, local to the machine
+# running the watch).
 #
 # Requires: AMC_VENDOR_KEY env var (never committed — see CONTRIBUTING.md),
 # node + npm, Chromium (PW_CHROMIUM, default /opt/pw-browsers/chromium).
@@ -116,12 +116,3 @@ for r in seats:
 json.dump(cur, open("odyssey_state.json", "w"), indent=0, sort_keys=True)
 EOF
 rm -f .shows.json .seats.json
-
-# --- persist state only when it changed ------------------------------------
-if ! git -C "$REPO" diff --quiet -- watch/odyssey_state.json 2>/dev/null \
-   || [ -n "$(git -C "$REPO" status --porcelain watch/odyssey_state.json | grep '^??')" ]; then
-  git -C "$REPO" add watch/odyssey_state.json
-  git -C "$REPO" -c user.email=odyssey-watch@localhost -c user.name=odyssey-watch \
-    commit -qm "watch: odyssey seat state $(date -u +%FT%TZ)" || true
-  git -C "$REPO" push -q origin HEAD:claude/amc-showtime-seats-jqqtbp || true
-fi
