@@ -399,6 +399,53 @@ def fills():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.route("/api/watch")
+def watch():
+    """Uncached title watcher for dates outside the 7-day schedule window
+    (e.g. advance-sale events like IMAX 70mm openings). Returns every
+    showtime whose title contains ?title=, with the same seat-status enum
+    as /api/fills, scanning ?start= (default today) for ?days= (default 7,
+    max 14) across the configured theatres."""
+    title_q = (request.args.get("title") or "").strip().lower()
+    if not title_q:
+        return jsonify({"ok": False, "error": "missing ?title="}), 400
+    try:
+        start = (date.fromisoformat(request.args["start"])
+                 if request.args.get("start") else date.today())
+        days = min(max(int(request.args.get("days", 7)), 1), 14)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": f"bad start/days: {exc}"}), 400
+
+    results = []
+    try:
+        for theatre_name, theatre_id in amc.THEATRES.items():
+            for i in range(days):
+                show_date = start + timedelta(days=i)
+                try:
+                    raw = amc.fetch_showtimes(theatre_id, show_date)
+                except Exception as exc:
+                    print(f"WARN watch: {theatre_name} {show_date}: {exc}", file=sys.stderr)
+                    continue
+                for s in raw:
+                    title = s.get("movieTitle") or s.get("movieName") or ""
+                    if title_q not in title.lower():
+                        continue
+                    results.append({
+                        "theatre": theatre_name,
+                        "date": show_date.isoformat(),
+                        "time": _time24(s),
+                        "title": title,
+                        "format": amc.get_format(s),
+                        "status": _seat_status(s),
+                    })
+        results.sort(key=lambda r: (r["date"], r["time"] or "", r["theatre"]))
+        return jsonify({"ok": True, "title": title_q,
+                        "start": start.isoformat(), "days": days,
+                        "showtimes": results})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/status")
 def status():
     """Return current build status for frontend progress tracking."""

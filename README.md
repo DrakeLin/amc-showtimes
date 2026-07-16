@@ -24,6 +24,7 @@ amc-showtimes/
 |----------|--------|---------|
 | `/api/showtimes` | GET | Full-day schedule: movies, ratings, showtimes (12h `times` + parallel 24h `times24`) |
 | `/api/fills` | GET | Fresh per-showtime seat status: `{"HH:MM": "sold_out" \| "almost" \| "open"}` per `fill_key` |
+| `/api/watch` | GET | Uncached title watcher for dates beyond the 7-day window (advance sales): `?title=<substring>&start=YYYY-MM-DD&days=N` (days max 14) returns matching showtimes with the same seat-status enum as `/api/fills` |
 | `/api/status` | GET | Build progress while the schedule cache is (re)building |
 | `/api/refresh` | POST | Rebuild the schedule synchronously (30–60s when server caches are cold) and persist the GCS snapshot; `?full=1` also busts Letterboxd + movie-metadata caches |
 
