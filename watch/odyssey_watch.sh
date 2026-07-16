@@ -20,8 +20,15 @@ REPO="$(cd .. && pwd)"
 DAYS="${DAYS:-7}"
 THEATRE="${THEATRE:-2325}"
 WATCH_IDS="${WATCH_IDS:-}"
+# WATCH_WHENS="id=2026-07-18T15:00:00 ..." skips the vendor-API scan entirely
+# (no AMC_VENDOR_KEY needed); shows more than ~3h past are dropped.
+WATCH_WHENS="${WATCH_WHENS:-}"
+# JITTER=<seconds>: sleep a random 0..JITTER seconds before scraping so runs
+# don't hit amctheatres.com on a predictable clock.
+JITTER="${JITTER:-0}"
 STATE=odyssey_state.json
-: "${AMC_VENDOR_KEY:?set AMC_VENDOR_KEY}"
+[ -z "$WATCH_WHENS" ] && : "${AMC_VENDOR_KEY:?set AMC_VENDOR_KEY}"
+[ "$JITTER" -gt 0 ] && sleep $((RANDOM % JITTER))
 
 # --- bootstrap (idempotent) ----------------------------------------------
 [ -d node_modules/playwright-core ] || npm install --no-save --silent playwright-core
@@ -41,6 +48,21 @@ if [ -n "${HTTPS_PROXY:-}" ] && [ -f /root/.ccr/ca-bundle.crt ]; then
 fi
 
 # --- find 70mm Odyssey showtimes ------------------------------------------
+if [ -n "$WATCH_WHENS" ]; then
+  SHOWS=$(WATCH_WHENS="$WATCH_WHENS" python3 - <<'EOF'
+import datetime, json, os
+# showDateTimeLocal is theatre-local (ET for Lincoln Square); compare against
+# UTC-4 and keep shows until ~3h after start so a running show still updates.
+now = datetime.datetime.utcnow() - datetime.timedelta(hours=4)
+out = []
+for pair in os.environ["WATCH_WHENS"].split():
+    sid, when = pair.split("=", 1)
+    if datetime.datetime.fromisoformat(when) + datetime.timedelta(hours=3) > now:
+        out.append({"id": sid, "when": when})
+print(json.dumps(out))
+EOF
+)
+else
 SHOWS=$(REPO="$REPO" DAYS="$DAYS" THEATRE="$THEATRE" WATCH_IDS="$WATCH_IDS" python3 - <<'EOF'
 import datetime, json, os, sys
 sys.path.insert(0, os.environ["REPO"])
@@ -66,6 +88,7 @@ for i in range(int(os.environ["DAYS"])):
 print(json.dumps(out))
 EOF
 )
+fi
 ids=$(echo "$SHOWS" | python3 -c "import json,sys; print(' '.join(x['id'] for x in json.load(sys.stdin)))")
 [ -z "$ids" ] && { echo "no 70mm odyssey showtimes found in next $DAYS days"; exit 0; }
 
