@@ -1,8 +1,9 @@
 // Usage: node seatgrab.js <showtimeId> [showtimeId...]
 // For each AMC showtime id, loads the amctheatres.com seat picker headlessly
 // and prints a JSON array: {id, total, available, middle} per showtime.
-// "middle" = available non-wheelchair seats in the center block: row depth
-// 35-80% from the front, within the middle third of that row's seat numbers.
+// "middle" = available non-wheelchair seats in the center cell of a 3x3 grid
+// over the auditorium: middle third of rows front-to-back, middle third of
+// each row's seat numbers side-to-side.
 //
 // Needs playwright-core (npm install --no-save playwright-core) and a
 // Chromium binary (PW_CHROMIUM, default /opt/pw-browsers/chromium).
@@ -43,7 +44,7 @@ const { chromium } = require('playwright-core');
       const middle = [];
       rowNames.forEach((r, idx) => {
         const depth = rowNames.length > 1 ? idx / (rowNames.length - 1) : 0.5;
-        if (depth < 0.35 || depth > 0.8) return;
+        if (depth < 1 / 3 || depth > 2 / 3) return;
         const nums = rows[r].map(s => s.n);
         const lo = Math.min(...nums), hi = Math.max(...nums);
         const c1 = lo + (hi - lo) / 3, c2 = hi - (hi - lo) / 3;
