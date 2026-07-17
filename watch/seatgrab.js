@@ -26,14 +26,25 @@ const { chromium } = require('playwright-core');
   for (const id of ids) {
     const page = await ctx.newPage();
     try {
-      await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
-      await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 30000 });
-      const data = await page.evaluate(() =>
-        [...document.querySelectorAll('[aria-label="Seat Selection Map"] input')].map(i => ({
-          name: i.name,
-          disabled: i.disabled,
-          label: i.getAttribute('aria-label') || '',
-        })));
+      // Retry once: first loads through the egress proxy are often slow enough
+      // to blow the selector timeout even though the page eventually renders.
+      let data;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
+          await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 90000 });
+          data = await page.evaluate(() =>
+            [...document.querySelectorAll('[aria-label="Seat Selection Map"] input')].map(i => ({
+              name: i.name,
+              disabled: i.disabled,
+              label: i.getAttribute('aria-label') || '',
+            })));
+          break;
+        } catch (e) {
+          if (attempt >= 1) throw e;
+          console.error(`retry ${id}: ${e.message.split('\n')[0]}`);
+        }
+      }
       const rows = {};
       for (const s of data) {
         const m = s.name.match(/^([A-Z]+)(\d+)$/);
