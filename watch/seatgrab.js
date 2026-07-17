@@ -27,14 +27,16 @@ const { chromium } = require('playwright-core');
     const page = await ctx.newPage();
     try {
       // amctheatres.com rate-limits page loads (429), which serves a shell
-      // page whose seat map never renders. Back off and retry once on 429;
-      // anything else that leaves the map missing is a real failure.
+      // page whose seat map never renders. The block is sticky (minutes, not
+      // seconds — observed still limited after a 5 min quiet period), so back
+      // off long between attempts; anything else that leaves the map missing
+      // is a real failure.
       let data;
       for (let attempt = 0; ; attempt++) {
         const resp = await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
-        if (resp && resp.status() === 429 && attempt < 1) {
-          console.error(`429 ${id}: backing off 60s`);
-          await page.waitForTimeout(60000);
+        if (resp && resp.status() === 429 && attempt < 2) {
+          console.error(`429 ${id}: backing off 5 min (attempt ${attempt + 1})`);
+          await page.waitForTimeout(300000);
           continue;
         }
         if (resp && resp.status() === 429) throw new Error('rate limited (429)');
