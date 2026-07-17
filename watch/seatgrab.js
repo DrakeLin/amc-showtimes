@@ -12,6 +12,11 @@
 // and the proxy CA must be in the NSS store (odyssey_watch.sh handles that).
 const { chromium } = require('playwright-core');
 
+// BACKOFF=<seconds> (default 300): how long to wait before retrying a 429'd
+// showtime, twice max. Unattended runs want the patient default; set BACKOFF=0
+// on interactive runs to fail fast instead of sitting in multi-minute sleeps.
+const BACKOFF_MS = (process.env.BACKOFF === undefined ? 300 : +process.env.BACKOFF) * 1000;
+
 (async () => {
   const ids = process.argv.slice(2);
   const proxied = !!process.env.HTTPS_PROXY;
@@ -34,9 +39,9 @@ const { chromium } = require('playwright-core');
       let data;
       for (let attempt = 0; ; attempt++) {
         const resp = await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
-        if (resp && resp.status() === 429 && attempt < 2) {
-          console.error(`429 ${id}: backing off 5 min (attempt ${attempt + 1})`);
-          await page.waitForTimeout(300000);
+        if (resp && resp.status() === 429 && attempt < 2 && BACKOFF_MS > 0) {
+          console.error(`429 ${id}: backing off ${BACKOFF_MS / 1000}s (attempt ${attempt + 1})`);
+          await page.waitForTimeout(BACKOFF_MS);
           continue;
         }
         if (resp && resp.status() === 429) throw new Error('rate limited (429)');
