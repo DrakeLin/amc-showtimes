@@ -26,24 +26,26 @@ const { chromium } = require('playwright-core');
   for (const id of ids) {
     const page = await ctx.newPage();
     try {
-      // Retry once: first loads through the egress proxy are often slow enough
-      // to blow the selector timeout even though the page eventually renders.
+      // amctheatres.com rate-limits page loads (429), which serves a shell
+      // page whose seat map never renders. Back off and retry once on 429;
+      // anything else that leaves the map missing is a real failure.
       let data;
       for (let attempt = 0; ; attempt++) {
-        try {
-          await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
-          await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 90000 });
-          data = await page.evaluate(() =>
-            [...document.querySelectorAll('[aria-label="Seat Selection Map"] input')].map(i => ({
-              name: i.name,
-              disabled: i.disabled,
-              label: i.getAttribute('aria-label') || '',
-            })));
-          break;
-        } catch (e) {
-          if (attempt >= 1) throw e;
-          console.error(`retry ${id}: ${e.message.split('\n')[0]}`);
+        const resp = await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
+        if (resp && resp.status() === 429 && attempt < 1) {
+          console.error(`429 ${id}: backing off 60s`);
+          await page.waitForTimeout(60000);
+          continue;
         }
+        if (resp && resp.status() === 429) throw new Error('rate limited (429)');
+        await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 30000 });
+        data = await page.evaluate(() =>
+          [...document.querySelectorAll('[aria-label="Seat Selection Map"] input')].map(i => ({
+            name: i.name,
+            disabled: i.disabled,
+            label: i.getAttribute('aria-label') || '',
+          })));
+        break;
       }
       const rows = {};
       for (const s of data) {
@@ -70,6 +72,8 @@ const { chromium } = require('playwright-core');
       console.error(`err ${id}: ${e.message.split('\n')[0]}`);
     }
     await page.close();
+    // Pace consecutive loads so a multi-showtime run doesn't trip the limiter.
+    if (id !== ids[ids.length - 1]) await new Promise(r => setTimeout(r, 15000));
   }
   console.log(JSON.stringify(out));
   await browser.close();
