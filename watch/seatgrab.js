@@ -12,6 +12,7 @@
 // and the proxy CA must be in the NSS store (odyssey_watch.sh handles that).
 const { chromium } = require('playwright-core');
 
+
 (async () => {
   const ids = process.argv.slice(2);
   const proxied = !!process.env.HTTPS_PROXY;
@@ -26,8 +27,13 @@ const { chromium } = require('playwright-core');
   for (const id of ids) {
     const page = await ctx.newPage();
     try {
-      await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 90000 });
-      await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 30000 });
+      // One attempt per showtime, 5 min budget. amctheatres.com rate-limits
+      // page loads (429) and serves a shell page whose seat map never renders
+      // — fail that fast with an honest error instead of waiting it out; the
+      // next scheduled run retries anyway.
+      const resp = await page.goto(`https://www.amctheatres.com/showtimes/${id}/seats`, { waitUntil: 'load', timeout: 300000 });
+      if (resp && resp.status() === 429) throw new Error('rate limited (429)');
+      await page.waitForSelector('[aria-label="Seat Selection Map"] input', { timeout: 300000 });
       const data = await page.evaluate(() =>
         [...document.querySelectorAll('[aria-label="Seat Selection Map"] input')].map(i => ({
           name: i.name,
@@ -59,6 +65,8 @@ const { chromium } = require('playwright-core');
       console.error(`err ${id}: ${e.message.split('\n')[0]}`);
     }
     await page.close();
+    // Pace consecutive loads so a multi-showtime run doesn't trip the limiter.
+    if (id !== ids[ids.length - 1]) await new Promise(r => setTimeout(r, 15000));
   }
   console.log(JSON.stringify(out));
   await browser.close();
