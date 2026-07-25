@@ -45,13 +45,15 @@ _build_status_lock = threading.Lock()
 
 
 # -- Cached lookups --------------------------------------------------------------
-def get_lb_data_cached(title):
+def get_lb_data_cached(title, release_year=None, directors=None):
     with _lb_cache_lock:
         entry = _lb_cache.get(title)
         if entry is not None and time.time() - entry["ts"] < LB_CACHE_TTL:
             return entry["rating"], entry["synopsis"], entry.get("url")
 
-    rating, synopsis, url = amc.get_lb_data(title)
+    # release_year/directors (from AMC) keep a slug guess from resolving to a
+    # different film with the same title -- see amc._film_matches.
+    rating, synopsis, url = amc.get_lb_data(title, release_year, directors)
 
     with _lb_cache_lock:
         _lb_cache[title] = {"rating": rating, "synopsis": synopsis, "url": url, "ts": time.time()}
@@ -69,7 +71,7 @@ def get_movie_meta_cached(movie_id):
         meta = amc.get_movie_details(movie_id)
     except Exception as exc:
         print(f"WARN: movie details for {movie_id}: {exc}", file=sys.stderr)
-        meta = {"poster": "", "director": "", "cast": ""}
+        meta = {"poster": "", "director": "", "cast": "", "release_year": None}
 
     entry = {**meta, "ts": time.time()}
     with _movie_meta_cache_lock:
@@ -156,16 +158,29 @@ def build_schedule():
 
             seen_lb: dict = {}
             for (title, fmt), g in groups.items():
+                # AMC details first: its director/release year are what tell
+                # Letterboxd's same-titled films apart. Cached, so the repeat
+                # calls across formats/days are dict hits.
+                meta = {
+                    "poster": "",
+                    "director": "",
+                    "cast": "",
+                    "release_year": None,
+                }
+                if g["movie_id"]:
+                    _set_build_status("details", f"Details: {title}", pct)
+                    meta = get_movie_meta_cached(g["movie_id"])
+
                 if title not in seen_lb:
                     _set_build_status("letterboxd", f"Rating: {title}", pct)
-                    seen_lb[title] = get_lb_data_cached(title)
+                    seen_lb[title] = get_lb_data_cached(
+                        title,
+                        meta.get("release_year"),
+                        meta.get("director"),
+                    )
                 lb_rating, synopsis, lb_url = seen_lb[title]
 
                 if title not in movies:
-                    meta = {"poster": "", "director": "", "cast": ""}
-                    if g["movie_id"]:
-                        _set_build_status("details", f"Details: {title}", pct)
-                        meta = get_movie_meta_cached(g["movie_id"])
                     movies[title] = {
                         "title": title,
                         "lb_rating": lb_rating,

@@ -4,6 +4,7 @@ Run: python3 -m unittest discover -s tests -v
 """
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -122,6 +123,74 @@ class ParseLbFilmPageTests(unittest.TestCase):
         html = '<meta property="og:description" content="Too short.">'
         _, synopsis = amc._parse_lb_film_page(html)
         self.assertEqual(synopsis, "")
+
+
+def _lb_page(year, director_slug):
+    return (
+        f'<meta property="og:title" content="Obsession ({year})">'
+        f'<a href="/director/{director_slug}/">Dir</a>'
+    )
+
+
+class FilmMatchesTests(unittest.TestCase):
+    def test_director_match(self):
+        page = _lb_page(2025, "curry-barker")
+        self.assertTrue(amc._film_matches(page, 2026, "CURRY BARKER"))
+
+    def test_director_mismatch_rejects_same_title_same_year(self):
+        # The real bug: /film/obsession-2026/ is a different film that happens
+        # to share the title *and* the year.
+        page = _lb_page(2026, "jackson-treadway")
+        self.assertFalse(amc._film_matches(page, 2026, "CURRY BARKER"))
+
+    def test_numbered_director_slug_normalized(self):
+        page = _lb_page(1997, "andrei-konchalovsky-1")
+        self.assertTrue(amc._film_matches(page, 1997, "Andrei Konchalovsky"))
+
+    def test_multiple_directors_any_match(self):
+        page = _lb_page(2026, "phil-lord")
+        self.assertTrue(
+            amc._film_matches(page, 2026, "Christopher Miller, Phil Lord")
+        )
+
+    def test_year_used_when_page_has_no_director(self):
+        page = '<meta property="og:title" content="The Odyssey (1997)">'
+        self.assertFalse(amc._film_matches(page, 2026, ""))
+        self.assertTrue(amc._film_matches(page, 1997, ""))
+
+    def test_festival_year_within_tolerance(self):
+        page = '<meta property="og:title" content="Obsession (2025)">'
+        self.assertTrue(amc._film_matches(page, 2026, ""))
+
+    def test_no_hints_is_inconclusive(self):
+        self.assertIsNone(amc._film_matches(_lb_page(2026, "x"), None, ""))
+
+    def test_no_page_evidence_is_inconclusive(self):
+        self.assertIsNone(amc._film_matches("<html></html>", 2026, "Curry Barker"))
+
+
+class LbSlugCandidateTests(unittest.TestCase):
+    def test_bare_slug_first_then_release_years(self):
+        urls = amc._lb_slug_candidates("the-odyssey", 2026)
+        self.assertEqual(urls[0], "https://letterboxd.com/film/the-odyssey/")
+        self.assertIn("https://letterboxd.com/film/the-odyssey-2026/", urls)
+        self.assertIn("https://letterboxd.com/film/the-odyssey-2025/", urls)
+
+    def test_collision_suffix_included(self):
+        urls = amc._lb_slug_candidates("obsession", 2026)
+        self.assertIn("https://letterboxd.com/film/obsession-2026-1/", urls)
+
+    def test_falls_back_to_current_year(self):
+        urls = amc._lb_slug_candidates("moana", None)
+        self.assertIn(f"https://letterboxd.com/film/moana-{date.today().year}/", urls)
+
+
+class PersonSlugTests(unittest.TestCase):
+    def test_uppercase_amc_name(self):
+        self.assertEqual(amc._person_slug("CURRY BARKER"), "curry-barker")
+
+    def test_punctuation_dropped(self):
+        self.assertEqual(amc._person_slug("Bong Joon-ho"), "bong-joon-ho")
 
 
 class GetFormatTests(unittest.TestCase):

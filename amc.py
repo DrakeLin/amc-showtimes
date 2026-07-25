@@ -54,6 +54,10 @@ _LB_RATING_RE = re.compile(
     re.IGNORECASE,
 )
 _LB_LD_RE = re.compile(r'"ratingValue"\s*:\s*"?([\d.]+)"?')
+# Identity markers on a Letterboxd film page, used to tell same-titled films
+# apart ("The Odyssey" 1997 vs Nolan's 2026).
+_LB_YEAR_RE = re.compile(r'<meta property="og:title" content="[^"]*\((\d{4})\)"')
+_LB_DIRECTOR_RE = re.compile(r'href="/director/([^/"]+)/"')
 _FORMAT_STRIP_RE = re.compile(
     r"^\s*(IMAX|DOLBY|PRIME|PLF|3D|4DX|DBOX|SCREENX|RPX)[\s:]+",
     re.IGNORECASE,
@@ -233,11 +237,19 @@ def get_movie_details(movie_id):
     raw = _get(url, headers=_amc_headers())
     data = json.loads(raw)
     media = data.get("media", {}) or {}
+    # 'releaseDateUtc' is an ISO timestamp ("2026-07-17T05:00:00Z"); the year
+    # alone is what disambiguates Letterboxd pages.
+    released = data.get("releaseDateUtc") or ""
+    try:
+        release_year = int(released[:4])
+    except ValueError:
+        release_year = None
     return {
         "poster": media.get("posterDynamic") or "",
         "director": data.get("directors") or "",
         "cast": data.get("starringActors") or "",
         "synopsis": data.get("synopsis") or "",
+        "release_year": release_year,
     }
 
 
@@ -291,6 +303,65 @@ def _parse_lb_film_page(html):
             synopsis = ""
 
     return rating, synopsis
+
+
+def _person_slug(name):
+    """'CURRY BARKER' -> 'curry-barker' (AMC's plain-text director names come
+    in inconsistent casing; Letterboxd uses lowercase hyphenated slugs)."""
+    s = re.sub(r"[^a-z0-9\s-]", "", name.strip().lower())
+    return re.sub(r"\s+", "-", s).strip("-")
+
+
+def _parse_lb_film_identity(html):
+    """(release_year|None, {director slugs}) for a Letterboxd film page."""
+    m = _LB_YEAR_RE.search(html)
+    year = int(m.group(1)) if m else None
+    # Letterboxd disambiguates duplicate names ("lee-gun-wook-2"); strip the
+    # suffix so the slug compares equal to one built from AMC's name.
+    dirs = {re.sub(r"-\d+$", "", d) for d in _LB_DIRECTOR_RE.findall(html)}
+    return year, dirs
+
+
+def _film_matches(html, release_year, directors):
+    """Is this Letterboxd page the film AMC is listing?
+
+    True = confident match, False = confident mismatch, None = no evidence
+    (caller falls back to the old "first page with a rating wins" behavior).
+
+    Slug guesses collide across films sharing a title, and the collision often
+    has a rating while the film we want doesn't, so an unchecked guess silently
+    returns the wrong movie. AMC hands us the director(s) and a release date,
+    which is enough to reject the impostor.
+    """
+    want_dirs = {
+        _person_slug(d)
+        for d in re.split(r"\s*,\s*", directors or "")
+        if d.strip()
+    }
+    if not want_dirs and not release_year:
+        return None
+
+    page_year, page_dirs = _parse_lb_film_identity(html)
+    if want_dirs and page_dirs:
+        return bool(want_dirs & page_dirs)
+    if release_year and page_year:
+        # AMC's date is the US theatrical release; Letterboxd dates a film by
+        # its first release anywhere, which can be a festival a year or two
+        # earlier (Curry Barker's "Obsession": LB 2025, AMC 2026-05-15).
+        return 0 <= release_year - page_year <= 2
+    return None
+
+
+def _lb_slug_candidates(slug, release_year):
+    """Letterboxd film-page URLs to try, best guess first. Letterboxd only
+    year-suffixes a slug when the bare one is taken, and appends -1/-2 when
+    even the year collides, so try all three shapes."""
+    base_year = release_year or date.today().year
+    years = [base_year, base_year - 1, base_year - 2]
+    urls = [f"{LB_BASE}/film/{slug}/"]
+    urls += [f"{LB_BASE}/film/{slug}-{y}/" for y in years]
+    urls += [f"{LB_BASE}/film/{slug}-{y}-1/" for y in years[:2]]
+    return urls
 
 
 def _lb_search_slug(title):
@@ -350,7 +421,7 @@ def _progressive_queries(title):
             break
 
 
-def get_lb_data(title):
+def get_lb_data(title, release_year=None, directors=None):
     """Fetch (rating, synopsis, film_url) from Letterboxd; falls back to LB
     search when slug guesses miss or land on a page without a rating.
     film_url is the page the data actually came from, or None.
@@ -359,16 +430,14 @@ def get_lb_data(title):
     Event", "... - Studio Ghibli Fest 2026") that doesn't match Letterboxd's
     title, so we clean the title first and, if search still can't find a
     match, retry with progressively shorter head segments of the title.
+
+    release_year/directors come from AMC's movie record and are used to reject
+    a slug guess that resolves to a different film of the same name. Optional:
+    without them the older "first page with a rating wins" behavior applies.
     """
     cleaned = clean_title(title)
     slug = lb_slug(cleaned)
-    year = date.today().year
-    candidates = [
-        f"{LB_BASE}/film/{slug}/",
-        f"{LB_BASE}/film/{slug}-{year}/",
-        f"{LB_BASE}/film/{slug}-{year - 1}/",
-        f"{LB_BASE}/film/{slug}-{year - 2}/",
-    ]
+    candidates = _lb_slug_candidates(slug, release_year)
     best = ("N/A", "", None)
     tried = set()
     for url in candidates:
@@ -378,6 +447,8 @@ def get_lb_data(title):
             html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
         except Exception:
             continue
+        if _film_matches(html, release_year, directors) is False:
+            continue  # same title, different film -- keep looking
         rating, synopsis = _parse_lb_film_page(html)
         if rating != "N/A":
             return rating, synopsis, url
@@ -404,6 +475,8 @@ def get_lb_data(title):
         try:
             time.sleep(0.3)
             html = _get(url, headers={"Accept": "text/html"}).decode("utf-8", errors="replace")
+            if _film_matches(html, release_year, directors) is False:
+                continue
             rating, synopsis = _parse_lb_film_page(html)
             # Search found the film's real page -- return its url even if
             # the page has no rating/synopsis yet. Prefer this URL over a
