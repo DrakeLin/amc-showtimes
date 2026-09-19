@@ -67,7 +67,7 @@ Claims provide throttling, not a transactional distributed lock: a time-slot bou
 5. In Project Settings → Cron Jobs, use **Run** to check the protected daily job. Do not expose `CRON_SECRET` in a URL or the frontend.
 6. For automatic deployments, connect the repository under Vercel Project Settings → Git. Pushes to the configured production branch deploy automatically; other branches can create previews. Merely opening a GitHub PR does not connect an existing Vercel project.
 
-The current project was initially deployed through Vercel's folder upload. Code is maintained on GitHub; check the project's Git settings to confirm whether automatic deployment is connected.
+The current project is connected to **DrakeLin/amc-showtimes**, with **main** as its production branch. The first deployment used a folder upload; subsequent changes deploy from GitHub.
 
 ### Free-tier scope
 
