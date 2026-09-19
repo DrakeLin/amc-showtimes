@@ -1,185 +1,138 @@
-# AMC SF Showtimes
+# Showtimes
 
-A small Flask PWA that shows what's playing at AMC Metreon 16 and AMC Kabuki 8 in San Francisco, sorted by Letterboxd rating, with live per-showtime seat status (open / almost sold out / sold out).
+A small movie-planning PWA: AMC showtimes for the next seven days, movie posters and details, and Letterboxd ratings. Filter by theater, day, and time, then compare what fits your week.
 
-Live at **<https://amc-showtimes-114648525819.us-west1.run.app/>** (deployed on Google Cloud Run).
+**Live:** [showtimes-one.vercel.app](https://showtimes-one.vercel.app/) · Vercel Hobby
 
-The server returns full-day showtimes; day-of-week and time-range filtering happens entirely client-side (tap a day chip to cycle: all times → custom hours → skipped; choices persist in localStorage). Weekdays default to a 4–9 PM window, weekends to the full day.
+The initial theaters are **AMC NewPark 12** and **AMC Mercado 20**. Open **Settings** at the top right to change the shared list of up to three theaters included in daily refreshes. **Anyone can edit this list; there is no account or owner password.** Saving replaces the list for everyone. An empty list stops scheduled showtime fetching.
 
-The theatre chips toggle visibility locally and remember your selection. Both configured theatres share the existing schedule cache; switching chips makes no network requests and adds no refresh jobs.
+The main **Theaters:** row is a personal display filter: **×** hides a theater and **+** restores it. These actions do not change the shared refresh list or trigger upstream fetches. Theater visibility, day/time preferences, and collapsed movies stay in your browser. Weekdays default to 4–9 PM; weekends show the full day.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Browser[Browser / installed PWA] --> CDN[Vercel CDN: static assets]
+    Browser --> API[Flask Vercel Function: app.py]
+    Cron[Daily Vercel Cron] --> API
+    API --> Blob[Private Vercel Blob: durable JSON caches]
+    API --> AMC[AMC API: theaters, schedules, movie details]
+    API --> LB[Letterboxd: matched film pages and ratings]
+```
+
+Vercel runs `app.py`, not the legacy `server.py` web server. `server.py` is imported for shared parsing helpers with its background refresh thread disabled. No Google Cloud service is required by the Vercel app. `build.py` copies static files to `public/` for CDN delivery. The Flask function has a 300-second maximum duration; individual upstream operations use shorter budgets.
+
+### Loading and refreshing
+
+1. Opening the site reads saved schedules immediately.
+2. Missing or stale dates load progressively through `POST /api/theater-day`, with a 35-second upstream deadline per theater/date. Successful dates are saved immediately; failures preserve old snapshots.
+3. `POST /api/metadata` fills posters, synopsis, director/cast, and Letterboxd ratings in batches of up to four known movies, also with a 35-second upstream budget. The browser updates movie cards and rating order as batches finish. Metadata persists across cold starts, so it does not depend on waiting for cron.
+4. A daily cron at **12:00 UTC** refreshes only the current shared theaters. Hobby cron timing has a one-hour window. It prioritizes schedules, with optional metadata enrichment afterward.
+5. The Refresh button may request an early schedule refresh, but a five-minute minimum age and immutable request claims limit duplicate upstream work.
+
+Posters and credits come from AMC movie records. Letterboxd film matching uses the title plus release year and director to avoid confusing same-named films. Some films/events legitimately have no rating. Letterboxd scraping is unofficial and can fail independently of schedules or posters.
+
+**Seat availability is a cached snapshot**, based on AMC's open/almost-full/sold-out flags—not live seat counts. The UI labels it as potentially changed. The legacy `/api/fills` polling service is not part of the Vercel deployment.
+
+### Durable records
+
+| Record | Purpose / retention |
+| --- | --- |
+| `favorites.json` | Shared refresh list; independent of schedule refreshes |
+| `catalog.json` | AMC theater directory, seven-day cache |
+| `schedules/{theater}/{weekday}.json` | Seven reusable schedule slots per theater; actual date checked; 24-hour freshness |
+| `metadata/{theater}.json` | On-demand movie details and ratings; seven-day freshness |
+| `metadata.json` | Metadata populated by cron, reused by on-demand batches |
+| `claims/{time-slot}/…` | Immutable claims to suppress duplicate fetches; small records accumulate |
+
+Claims provide throttling, not a transactional distributed lock: a time-slot boundary can permit overlap. Shared theater edits use last-save-wins behavior. The private Blob token is server-only; visitors use validated app endpoints, not direct storage access.
+
+## Deploy on Vercel for free
+
+1. Import this repository with the Vercel-ready code into a **Hobby** project. Use the Flask framework and repository root. `pyproject.toml` sets the `app:app` entrypoint; `vercel.json` sets the build, function duration, and cron. Keep Fluid Compute enabled.
+2. Connect a **private Vercel Blob** store and enable its read-write token environment variable. Production needs `BLOB_READ_WRITE_TOKEN`. Use separate storage for previews that should not modify live theater settings.
+3. Add the following **server-only** environment variables in Vercel:
+
+   | Variable | Required | Purpose |
+   | --- | --- | --- |
+   | `AMC_VENDOR_KEY` | Yes | Existing AMC vendor API key |
+   | `BLOB_READ_WRITE_TOKEN` | Yes | Created by the connected private Blob store |
+   | `CRON_SECRET` | Yes for daily refresh | Random secret of at least 32 characters; Vercel sends it as a Bearer token |
+   | `AMC_TIMEZONE` | No | Defaults to `America/Los_Angeles` |
+   | `INITIAL_FAVORITE_NAMES` | No | JSON array of exact AMC names; defaults to NewPark/Mercado; only used before the first saved list |
+
+   `OWNER_ACCESS_KEY` is **not used**. Editing the shared theater list is intentionally public. Never commit API keys or put them in frontend code.
+
+4. Deploy or redeploy after environment changes. Check `/api/health`, open the site, wait for the first schedules and metadata batches, then reload to verify cached results.
+5. In Project Settings → Cron Jobs, use **Run** to check the protected daily job. Do not expose `CRON_SECRET` in a URL or the frontend.
+6. For automatic deployments, connect the repository under Vercel Project Settings → Git. Pushes to the configured production branch deploy automatically; other branches can create previews. Merely opening a GitHub PR does not connect an existing Vercel project.
+
+The current project was initially deployed through Vercel's folder upload. Code is maintained on GitHub; check the project's Git settings to confirm whether automatic deployment is connected.
+
+### Free-tier scope
+
+This is designed for personal-scale use on **Hobby**, with the included `vercel.app` domain and private Blob allowance. No paid database, paid domain, or plan upgrade is needed. It is not unlimited hosting: functions, Blob reads/writes, storage, and transfer all have quotas. Public edits and refreshes consume the same allowances.
+
+Two theaters × seven dates × 30 days is roughly 420 schedule writes and 420 claim writes per month, plus metadata, settings, and any early refreshes. Three theaters raise that baseline to roughly 1,260 writes before metadata. Monitor Vercel Usage, especially Blob operation quotas. Daily cron, the three-theater cap, bounded requests, and cached metadata keep routine use small.
 
 ## Repository layout
 
-```
-amc-showtimes/
-├── amc.py            # AMC Theatres / Letterboxd fetch + parse helpers (data only)
-├── server.py         # Flask app: API endpoints, caching, serves static/
-├── static/           # PWA frontend (HTML/CSS/JS, manifest, service worker)
-├── tests/            # unit tests (stdlib unittest, no network)
-├── Dockerfile        # Cloud Run build (gunicorn, 1 worker × 8 threads)
-└── requirements.txt
+```text
+app.py              Vercel Flask routes and refresh orchestration
+storage.py          Private Blob JSON adapter; optional local disk storage
+amc.py              AMC and Letterboxd fetching, parsing, film matching
+server.py           Legacy Cloud Run entrypoint and shared helpers
+static/             HTML, CSS, JavaScript, PWA manifest and service worker
+build.py            Copies static assets into the Vercel CDN output
+vercel.json         Flask build, duration and daily cron
+pyproject.toml      Python dependencies and Vercel entrypoint
+Dockerfile          Legacy Cloud Run container
+tests/              Offline backend tests
 ```
 
-## API
+## Vercel API
 
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/showtimes` | GET | Full-day schedule: movies, ratings, showtimes (12h `times` + parallel 24h `times24`) |
-| `/api/fills` | GET | Fresh per-showtime seat status: `{"HH:MM": "sold_out" \| "almost" \| "open"}` per `fill_key` |
-| `/api/watch` | GET | Uncached title watcher for dates beyond the 7-day window (advance sales): `?title=<substring>&start=YYYY-MM-DD&days=N` (days max 14) returns matching showtimes with the same seat-status enum as `/api/fills` |
-| `/api/status` | GET | Build progress while the schedule cache is (re)building |
-| `/api/refresh` | POST | Rebuild the schedule synchronously (30–60s when server caches are cold) and persist the GCS snapshot; `?full=1` also busts Letterboxd + movie-metadata caches |
+| --- | --- | --- |
+| `/api/health` | GET | Runtime and configuration presence, never secret values |
+| `/api/theatres?q=…` | GET | Search the cached AMC directory |
+| `/api/favorites` | GET / PUT | Read or replace shared theater IDs; public writes require JSON; maximum three |
+| `/api/showtimes` | GET | Cached movies and schedules, plus missing/stale theater-date jobs |
+| `/api/theater-day` | POST | Fetch one valid theater/date; optional throttled refresh |
+| `/api/metadata` | POST | Populate cached movie details and ratings for known schedules at a theater |
+| `/api/cron` | GET | Daily refresh; requires `Authorization: Bearer <CRON_SECRET>` |
 
-Seat status is an enum, not a percentage — AMC's public API exposes no seat counts, only `isSoldOut`/`isAlmostSoldOut` flags. It is fetched fresh on every page load; everything else is cached in-memory (schedule 24h, Letterboxd + movie metadata 7 days). See [CLAUDE.md](CLAUDE.md) for the full caching model.
-
-## Configuration
-
-| Var | Required | Default | Purpose |
-|-----|----------|---------|---------|
-| `AMC_VENDOR_KEY` | yes | — | AMC Theatres API vendor key (request one at [developers.amctheatres.com](https://developers.amctheatres.com)) |
-| `PORT` | no | `8080` | Set automatically by Cloud Run |
-| `FLASK_DEBUG` | no | — | Set to `1` for the local dev loop (see below) |
-| `GCS_BUCKET` | no | — | GCS bucket for the schedule snapshot; unset disables it. Lets cold-started Cloud Run instances load the last built schedule (<1s) instead of re-scraping (30–60s) |
-| `AMC_THEATRES` | no | SF: Metreon 16 + Kabuki 8 | Theatres to scrape, as `Name:id,Name:id` (e.g. `AMC Empire 25:375`); ids are in amctheatres.com URL slugs |
-
-## Local development
-
-```bash
-pip install -r requirements.txt
-AMC_VENDOR_KEY="your-key" FLASK_DEBUG=1 python3 server.py
-```
-
-Visit `http://localhost:8080`.
-
-`FLASK_DEBUG=1` enables two things for a fast iteration loop:
-- **Auto-reload** — the server restarts itself whenever you save a `.py` file.
-- **Disk-backed schedule cache** (`.dev_schedule_cache.json`, gitignored) — without this, every reload would re-hit AMC + Letterboxd (30–60s). The schedule is written to disk after the first build and reloaded on subsequent restarts, still respecting the normal 24h TTL. Delete the file (or call `POST /api/refresh`) to force a real refetch.
-
-Frontend-only changes (`static/`) don't need a restart at all — just reload the page.
-
-## Tests
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-No network, no env vars, runs in well under a second. Coverage is the parsing/cleaning logic that breaks most often (title cleanup, Letterboxd page parsing, time/format helpers) — please add cases when you touch those.
-
-## Deploying
-
-The app runs on Google Cloud Run (free at this traffic scale), with two optional pieces of supporting infra:
-
-- a **GCS bucket** holding a ~70KB snapshot of the built schedule, so cold-started instances skip the 30–60s rebuild (`GCS_BUCKET` env var)
-- a **Cloud Scheduler job** POSTing `/api/refresh` twice daily, which re-scrapes and rewrites that snapshot
-
-See [CLAUDE.md](CLAUDE.md) for the deploy command, bucket setup, the scheduler job, and the reasoning behind Cloud Run over other hosts. For the installed-app experience, open the deployed URL on your phone and use Safari → Share → **Add to Home Screen**.
-
-## Failure modes
-
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| `ERROR: AMC_VENDOR_KEY env var is not set` | Env var missing | Export it locally, or redeploy with `--set-env-vars AMC_VENDOR_KEY=...` |
-| Schedule loads but no movies | Network issue or theatre IDs wrong | Check `THEATRES` IDs in `amc.py` |
-| AMC returns 401/403 | Vendor key invalid | Regenerate key, update env var |
-| All Letterboxd ratings are N/A | Letterboxd HTML changed | Update `_LB_RATING_RE` / `_LB_LD_RE` in `amc.py` |
-| Seat status looks wrong | AMC changed the `isSoldOut`/`isAlmostSoldOut` flags | Inspect a live `/api/fills` response, adjust `_seat_status()` in `server.py` |
-| Refresh takes ~a minute | Expected: `/api/refresh` re-scrapes synchronously; slowest with `?full=1` or cold server caches | Progress bar is live via `/api/status`; just wait |
-| Stale UI after deploying frontend changes | Service worker serves the cached shell | Bump `CACHE` in `static/sw.js`; installed PWAs update on their second launch |
-
-## Known fragility
-
-- **Letterboxd** is unofficial scraping. If they restructure the page, all ratings silently go N/A.
-- **AMC API** is stable in practice but undocumented publicly. Schema changes will surface as `KeyError`.
-
-## Contributing
-
-Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidelines. Good starting points are the TODO list at the bottom of [CLAUDE.md](CLAUDE.md).
-
-## License
-
-[MIT](LICENSE)
-
-## Showtimes on Vercel (Hobby)
-
-The Vercel entrypoint is `app.py`; `server.py` remains the legacy Cloud Run entrypoint.
-Vercel uses the same PWA frontend, now branded **Showtimes**. No Google Cloud service
-is used by the Vercel entrypoint. `build.py` copies static assets to Vercel's CDN.
-
-### Deployment
-
-1. Import this repository/branch into a **Hobby** Vercel project named `showtimes`
-   (use `showtimes-drakelin` if the address is taken). Keep Fluid Compute enabled.
-2. Create and connect a **private Vercel Blob** store. Set `BLOB_READ_WRITE_TOKEN`
-   for Production. Use a separate store/token for Preview if enabling previews;
-   do not point development at the production store.
-3. Add these server-only environment variables:
-   - `AMC_VENDOR_KEY`: the existing AMC vendor key from the Cloud Run service.
-   - `OWNER_ACCESS_KEY`: a random access key of at least 32 characters. Generate
-     with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`. Keep it in
-     your password manager; it unlocks favorites in the app. Do not put it in a URL.
-   - `CRON_SECRET`: a different random secret, at least 32 characters. Vercel sends
-     it as a Bearer token for the daily job.
-   - Optional `AMC_TIMEZONE`: defaults to `America/Los_Angeles`; change to
-     `America/New_York` when appropriate.
-   - Optional `INITIAL_FAVORITE_NAMES`: JSON array of exact AMC theater names,
-     defaults to `["AMC NewPark 12", "AMC Mercado 20"]`. Only used until the first
-     saved favorites record exists. IDs are resolved from AMC's catalog.
-4. Deploy. Verify `/api/health`, load the actual theater directory, sign in through
-   **Theaters & favorites → Owner settings**, and test a saved favorite after a reload.
-5. Trigger `/api/cron` once using its server-side Bearer secret to warm all favorite
-   schedules and movie metadata. Never expose the cron secret to frontend code.
-6. Retire the old Google services only after the new site's live checks pass.
-   This repository does not automatically delete Cloud Run, GCS, Scheduler, or images.
-
-Owner editing is enforced by signed, HttpOnly, Secure, SameSite=Strict sessions
-and a CSRF header on mutations. The raw owner key is never persisted in browser
-storage. Without a configured owner key, edits are disabled. Changing the key
-invalidates existing sessions. Anyone can browse; only the owner can change favorites
-or explicitly force an early refresh. There is one shared owner favorites list,
-not an account system for visitors. Save replaces the list, so NewPark/Mercado
-can replace the SF theaters rather than adding to them forever. An empty list is
-valid and stops scheduled showtime fetching.
-
-### Storage and fetching
-
-- Favorites are a separate durable record, independent of schedule refreshes.
-- Theater directory: cached for seven days; search matches theater name or city.
-- Showtimes: separate record per theater and weekday, containing the actual date.
-  Seven reusable slots keep schedule storage bounded per browsed theater.
-- Opening the app reads existing snapshots first. Missing or stale theater/dates
-  load progressively via individual requests with a 35-second upstream deadline.
-  No background Python thread or in-memory progress polling is used on Vercel.
-- Successful dates are saved immediately. Failed refreshes preserve the old data;
-  an empty successful result is different from a failed request.
-- Five-minute immutable claims reduce duplicate fetches across instances. A crashed
-  request cannot permanently lock a theater/date. Slot boundaries can permit overlap;
-  this is throttling, not a transactional distributed lock. Claim records are tiny
-  but accumulate; at personal scale their storage is negligible.
-- Daily cron at 12:00 UTC refreshes **only the current favorites**, at most three.
-  It prioritizes showtimes, then uses a separate short budget to enrich cached AMC
-  metadata and Letterboxd ratings. Metadata is persisted for reuse after cold starts.
-  If the budget expires, remaining dates can still load on demand. Ratings for new
-  non-favorite movies may remain unavailable until they are included in enrichment.
-- Availability colors reflect the saved snapshot and are explicitly labeled as
-  potentially changed; this version does not claim live seat status.
-
-The two initial favorites require roughly 420 schedule writes + 420 claim writes
-per 30 days, plus metadata/config writes. Reads and extra browsed theaters also
-consume the free allowances. Stay on Hobby, use the free `vercel.app` domain, and
-monitor Blob quotas. This is designed for personal use within free allowances,
-not guaranteed unlimited traffic. No paid upgrade or paid database is required.
-
-### Local checks
+## Local development and tests
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests
-LOCAL_DATA_DIR=.local-data OWNER_ACCESS_KEY='<your local test key>' \
-  AMC_VENDOR_KEY='<your key>' .venv/bin/flask --app app run
+export AMC_VENDOR_KEY='<your AMC key>'
+LOCAL_DATA_DIR=.local-data .venv/bin/flask --app app run --debug
+.venv/bin/python -m unittest discover -s tests -v
+node --check static/app.js
+node --check static/favorites.js
 ```
 
-`LOCAL_DATA_DIR` enables durable disk records only outside Vercel. It is ignored
-on Vercel so a misconfiguration cannot silently save favorites to an ephemeral disk.
-The `vercel` Python SDK is pinned to 0.11.3: its synchronous Blob API differs from
-newer JavaScript examples (`overwrite`, `result.content`, etc.).
+`LOCAL_DATA_DIR` is ignored on Vercel; ephemeral disk must never silently replace durable storage. The Python `vercel` SDK is pinned to `0.11.3`; its synchronous Blob API uses `overwrite` and `result.content`.
+
+The service worker caches the app shell. Bump its cache version in `static/sw.js` for frontend changes. API requests always use the network. Installed PWAs may need a reload after the updated worker activates.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| No schedules | `/api/health`, valid AMC key, Blob connection, runtime logs |
+| Posters or ratings missing | Metadata batch requests and runtime logs; a failed lookup must not remove a successful schedule |
+| A few ratings remain N/A | Film matching, an unrated event, or unavailable Letterboxd page |
+| Recent refresh does nothing | Five-minute refresh cooldown / duplicate request claim |
+| Changes appear on another device | Expected for shared settings; main-screen filters remain local |
+| Old UI after deployment | Reload after the new service worker activates |
+
+## Legacy Cloud Run deployment
+
+The previous [Cloud Run site](https://amc-showtimes-114648525819.us-west1.run.app/) uses `server.py`, GCS snapshots, and Cloud Scheduler. Its original Metreon/Kabuki defaults and live seat-status polling are separate from the Vercel deployment. Existing Google services have not been deleted. Legacy deployment details remain in [CLAUDE.md](CLAUDE.md); use this README for the current Vercel architecture.
+
+## License
+
+[MIT](LICENSE)

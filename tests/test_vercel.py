@@ -24,37 +24,28 @@ class VercelTests(unittest.TestCase):
         self.env.start(); self.addCleanup(self.env.stop)
         self.storage_patch = patch.object(web, 'store', Store())
         self.storage_patch.start(); self.addCleanup(self.storage_patch.stop)
-        self.secret = patch.object(web, 'owner_key', 'test-only-access-key-' + 'x' * 32)
-        self.secret.start(); self.addCleanup(self.secret.stop)
-        web.app.config.update(TESTING=True, SECRET_KEY='test-only-session-key', SESSION_COOKIE_SECURE=False)
+        web.app.config.update(TESTING=True)
         web.store.put('catalog.json', {'ts': time.time(), 'theaters': CATALOG})
         self.client = web.app.test_client()
         self.no_network = patch('amc._get', side_effect=AssertionError('Unexpected network call'))
         self.no_network.start(); self.addCleanup(self.no_network.stop)
 
     def login(self):
-        result = self.client.post('/api/login', json={'key': web.owner_key})
-        self.assertEqual(result.status_code, 200)
-        return {'X-CSRF-Token': result.json['csrf']}
+        return {}
 
     def test_defaults_are_newpark_mercado_and_survive_cold_start(self):
         self.assertEqual([t['name'] for t in self.client.get('/api/favorites').json['theaters']], web.DEFAULT_NAMES)
         web.store = Store()
         self.assertEqual([t['id'] for t in web.favorites()['theaters']], [101, 102])
 
-    def test_visitors_cannot_edit_even_with_forged_csrf(self):
-        result = self.client.put('/api/favorites', json={'ids': [103]}, headers={'X-CSRF-Token': 'forged'})
-        self.assertEqual(result.status_code, 401)
-        self.assertIsNone(web.store.get('favorites.json'))
-
-    def test_owner_needs_csrf_can_replace_favorites_and_logout(self):
-        csrf = self.login()
-        self.assertEqual(self.client.put('/api/favorites', json={'ids': [103]}).status_code, 403)
-        result = self.client.put('/api/favorites', json={'ids': [103]}, headers=csrf)
+    def test_any_visitor_can_edit_shared_favorites_without_key(self):
+        result = self.client.put('/api/favorites', json={'ids': [103]})
         self.assertEqual(result.status_code, 200)
-        self.assertEqual([t['id'] for t in Store().get('favorites.json')['theaters']], [103])
-        self.client.post('/api/logout', headers=csrf)
-        self.assertEqual(self.client.put('/api/favorites', json={'ids': []}, headers=csrf).status_code, 401)
+        other = web.app.test_client()
+        self.assertEqual([t['id'] for t in other.get('/api/favorites').json['theaters']], [103])
+
+    def test_favorites_require_json(self):
+        self.assertEqual(self.client.put('/api/favorites', data='ids=103').status_code, 415)
 
     def test_invalid_and_unknown_favorites_rejected(self):
         csrf = self.login()
@@ -93,9 +84,12 @@ class VercelTests(unittest.TestCase):
         self.assertEqual(web.cached_day(101, day), old)
         self.assertEqual(fetch.call_count, 1)
 
-    def test_force_refresh_requires_owner(self):
-        result = self.client.post('/api/theater-day', json={'theater': 101, 'date': web.dates()[0], 'refresh': True})
-        self.assertEqual(result.status_code, 401)
+    def test_public_force_refresh_remains_throttled(self):
+        with patch('amc.fetch_showtimes', return_value=[]) as fetch:
+            body = {'theater': 101, 'date': web.dates()[0], 'refresh': True}
+            self.assertEqual(self.client.post('/api/theater-day', json=body).status_code, 200)
+            self.client.post('/api/theater-day', json=body)
+            self.assertEqual(fetch.call_count, 1)
 
     def test_cron_protected_and_only_refreshes_current_favorites(self):
         self.client.put('/api/favorites', json={'ids': [102]}, headers=self.login())
@@ -133,4 +127,32 @@ class VercelTests(unittest.TestCase):
         self.assertIsNone(web.cached_day(101, day))
 
     def test_api_never_cached(self):
-        self.assertEqual(self.client.get('/api/session').headers['Cache-Control'], 'no-store')
+        self.assertEqual(self.client.get('/api/health').headers['Cache-Control'], 'no-store')
+
+    def test_metadata_populates_posters_and_ratings_without_cron(self):
+        day = web.dates()[0]
+        web.store.put(web.day_key(101, day), {'date': day, 'ts': time.time(), 'raw': [
+            {'movieId': 8, 'movieTitle': 'Example', 'showDateTimeLocal': day + 'T19:00:00'}]})
+        with patch('amc.get_movie_details', return_value={'poster': 'https://example.com/poster.jpg', 'release_year': 2026, 'director': 'A Director'}) as details, patch('amc.get_lb_data', return_value=('4.2', '', 'https://letterboxd.com/film/example/')) as rating:
+            result = self.client.post('/api/metadata', json={'theater': 101})
+            self.assertEqual(result.json['pending'], 0)
+            self.assertEqual(result.json['metadata']['8']['lb_rating'], '4.2')
+            self.client.post('/api/metadata', json={'theater': 101})
+            self.assertEqual(details.call_count, 1)
+            self.assertEqual(rating.call_count, 1)
+            rating.assert_called_once_with('Example', 2026, 'A Director')
+        movie = self.client.get('/api/showtimes').json['movies'][0]
+        self.assertEqual(movie['poster'], 'https://example.com/poster.jpg')
+        self.assertEqual(movie['lb_rating'], '4.2')
+
+    def test_failed_rating_keeps_successful_poster_and_does_not_cache_failure(self):
+        day = web.dates()[0]
+        web.store.put(web.day_key(101, day), {'date': day, 'ts': time.time(), 'raw': [{'movieId': 8, 'movieTitle': 'Example'}]})
+        with patch('amc.get_movie_details', return_value={'poster': 'poster'}), patch('amc.get_lb_data', side_effect=TimeoutError):
+            result = self.client.post('/api/metadata', json={'theater': 101})
+        self.assertEqual(result.json['metadata']['8']['poster'], 'poster')
+        self.assertEqual(result.json['pending'], 1)
+        self.assertNotIn('8', web.store.get('metadata/101.json')['ratings'])
+
+    def test_metadata_rejects_arbitrary_theater(self):
+        self.assertEqual(self.client.post('/api/metadata', json={'theater': 999}).status_code, 400)

@@ -83,25 +83,57 @@ function isTheatreEnabled(short) {
 
 function renderTheatreFilters(shorts) {
   const container = $("theatreFilters");
-  if (shorts.length < 2) {
-    container.innerHTML = ""; // nothing to pick with a single theatre
-    return;
+  container.replaceChildren();
+  if (!shorts.length) return;
+  const label = document.createElement("span");
+  label.className = "theater-filter-label";
+  label.textContent = "Theaters:";
+  container.append(label);
+  const toggle = (short, enabled) => {
+    theatreState[short] = enabled;
+    localStorage.setItem(THEATRE_STORE_KEY, JSON.stringify(theatreState));
+    renderTheatreFilters(shorts);
+    applyFilters();
+  };
+  for (const short of shorts.filter(isTheatreEnabled)) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "theatre-chip";
+    chip.textContent = `${short} ×`;
+    chip.setAttribute("aria-label", `Hide ${short} showtimes`);
+    chip.addEventListener("click", () => toggle(short, false));
+    container.append(chip);
   }
-  container.innerHTML = shorts.map(short => `
-    <button class="theatre-chip${isTheatreEnabled(short) ? "" : " off"}" type="button" data-theatre="${escapeHtml(short)}">
-      ${escapeHtml(short)}
-    </button>
-  `).join("");
-
-  container.querySelectorAll(".theatre-chip").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const short = btn.dataset.theatre;
-      theatreState[short] = !isTheatreEnabled(short);
-      localStorage.setItem(THEATRE_STORE_KEY, JSON.stringify(theatreState));
-      btn.classList.toggle("off", !isTheatreEnabled(short));
-      applyFilters();
-    });
-  });
+  const hidden = shorts.filter(short => !isTheatreEnabled(short));
+  const picker = document.createElement("details");
+  picker.className = "theater-add";
+  const add = document.createElement("summary");
+  add.textContent = "+";
+  add.setAttribute("aria-label", "Add theater to view");
+  picker.append(add);
+  const menu = document.createElement("div");
+  menu.className = "theater-add-menu";
+  if (!hidden.length) {
+    const note = document.createElement("p");
+    note.textContent = "All included theaters are shown.";
+    menu.append(note);
+  }
+  for (const short of hidden) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = short;
+    item.addEventListener("click", () => toggle(short, true));
+    menu.append(item);
+  }
+  if ($("settingsBtn") && !$("settingsBtn").classList.contains("hidden")) {
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.textContent = "Manage refresh list…";
+    manage.addEventListener("click", () => { picker.open = false; $("settingsBtn").click(); });
+    menu.append(manage);
+  }
+  picker.append(menu);
+  container.append(picker);
 }
 
 // ---------------------------------------------------------------------------

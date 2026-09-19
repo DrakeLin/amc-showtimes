@@ -447,6 +447,8 @@ def get_lb_data(title, release_year=None, directors=None):
     best = ("N/A", "", None)
     tried = set()
     for url in candidates:
+        if REQUEST_DEADLINE.get() is not None and time.monotonic() >= REQUEST_DEADLINE.get():
+            raise TimeoutError("Metadata request budget reached")
         tried.add(url)
         try:
             time.sleep(0.3)
@@ -469,6 +471,8 @@ def get_lb_data(title, release_year=None, directors=None):
     # with progressively shorter queries (e.g. "Foo: Bar Edition" -> "Foo")
     # if the full cleaned title doesn't turn up a plausible match.
     for query in _progressive_queries(title):
+        if REQUEST_DEADLINE.get() is not None and time.monotonic() >= REQUEST_DEADLINE.get():
+            raise TimeoutError("Metadata request budget reached")
         found_slug, found_name = _lb_search_slug(query)
         if not found_slug:
             continue

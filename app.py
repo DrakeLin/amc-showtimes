@@ -9,17 +9,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 os.environ['AMC_SERVERLESS'] = '1'
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, jsonify, request, send_from_directory
 import amc
 import server as legacy
 from storage import Store
 
 app = Flask(__name__, static_folder='static')
-owner_key = os.environ.get('OWNER_ACCESS_KEY', '')
-app.secret_key = hashlib.sha256(('amc-owner-session:' + owner_key).encode()).digest() if len(owner_key) >= 32 else None
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
-                  SESSION_COOKIE_SECURE=not bool(os.environ.get('LOCAL_DATA_DIR')),
-                  PERMANENT_SESSION_LIFETIME=timedelta(days=7), MAX_CONTENT_LENGTH=8192)
+app.config.update(MAX_CONTENT_LENGTH=8192)
 store = Store()
 DEFAULT_NAMES = ['AMC NewPark 12', 'AMC Mercado 20']
 MAX_FAVORITES = 3
@@ -32,17 +28,6 @@ def today():
 
 def dates():
     return [(today() + timedelta(days=i)).isoformat() for i in range(7)]
-
-
-def owner():
-    return bool(app.secret_key and session.get('owner'))
-
-
-def require_owner():
-    if not owner():
-        return jsonify(ok=False, error='Owner sign-in required'), 401
-    if request.method != 'GET' and not hmac.compare_digest(request.headers.get('X-CSRF-Token', '').encode(), session.get('csrf', 'missing').encode()):
-        return jsonify(ok=False, error='Please reopen owner settings'), 403
 
 
 @app.after_request
@@ -65,36 +50,6 @@ def error_response(exc):
 @app.get('/')
 def index():
     return send_from_directory('static', 'index.html')
-
-
-@app.get('/api/session')
-def owner_session():
-    return jsonify(ok=True, owner=owner(), configured=bool(app.secret_key), csrf=session.get('csrf', ''))
-
-
-@app.post('/api/login')
-def login():
-    # Require JSON; cross-origin HTML forms cannot send the secret or log in.
-    if not request.is_json:
-        return jsonify(ok=False, error='JSON required'), 415
-    if not app.secret_key:
-        return jsonify(ok=False, error='Owner access has not been configured'), 503
-    key = (request.get_json(silent=True) or {}).get('key', '')
-    if not isinstance(key, str) or not hmac.compare_digest(key.encode(), owner_key.encode()):
-        return jsonify(ok=False, error='Incorrect owner access key'), 401
-    session.clear()
-    session.update(owner=True, csrf=secrets.token_urlsafe(24))
-    session.permanent = True
-    return jsonify(ok=True, csrf=session['csrf'])
-
-
-@app.post('/api/logout')
-def logout():
-    denied = require_owner()
-    if denied:
-        return denied
-    session.clear()
-    return jsonify(ok=True)
 
 
 def catalog():
@@ -160,9 +115,8 @@ def theaters():
 def favorite_settings():
     if request.method == 'GET':
         return jsonify(ok=True, **favorites())
-    denied = require_owner()
-    if denied:
-        return denied
+    if not request.is_json:
+        return jsonify(ok=False, error='JSON required'), 415
     body = request.get_json(silent=True) or {}
     ids = body.get('ids')
     if not isinstance(ids, list) or len(ids) > MAX_FAVORITES or any(type(i) is not int for i in ids) or len(set(ids)) != len(ids):
@@ -185,8 +139,79 @@ def cached_day(tid, day):
     return saved if saved and saved.get('date') == day else None
 
 
-def metadata():
-    return store.get('metadata.json') or {'movies': {}, 'ratings': {}}
+def metadata(theater_ids=()):
+    result = store.get('metadata.json') or {'movies': {}, 'ratings': {}}
+    for tid in theater_ids:
+        saved = store.get(f'metadata/{tid}.json') or {}
+        for kind in ('movies', 'ratings'):
+            for mid, entry in saved.get(kind, {}).items():
+                if entry.get('ts', 0) >= result[kind].get(mid, {}).get('ts', 0):
+                    result[kind][mid] = entry
+    return result
+
+
+def metadata_due(meta, mid):
+    now = time.time()
+    return (now - meta['movies'].get(mid, {}).get('ts', 0) >= 7 * TTL or
+            now - meta['ratings'].get(mid, {}).get('ts', 0) >= 7 * TTL)
+
+
+@app.post('/api/metadata')
+def enrich_metadata():
+    tid = (request.get_json(silent=True) or {}).get('theater')
+    if type(tid) is not int or not find_theater(tid):
+        return jsonify(ok=False, error='Unknown theater'), 400
+    titles = {}
+    for day in dates():
+        saved = cached_day(tid, day)
+        for row in (saved or {}).get('raw', []):
+            if row.get('movieId'):
+                titles[str(row['movieId'])] = row.get('movieTitle') or row.get('movieName', '')
+    meta = metadata([tid])
+    pending = [mid for mid in sorted(titles) if metadata_due(meta, mid)]
+    batch = pending[:4]
+    retry_after = 0
+    if batch:
+        # Identical concurrent batches share a claim. The next batch has a new key.
+        digest = hashlib.sha256(','.join(batch).encode()).hexdigest()[:16]
+        if not store.claim(f'claims/{int(time.time() // 300)}/metadata-{tid}-{digest}.json'):
+            retry_after = 5
+        else:
+            token = amc.REQUEST_DEADLINE.set(time.monotonic() + 35)
+            try:
+                # Save posters before slower rating lookups, even if a lookup fails.
+                for mid in batch:
+                    if time.monotonic() >= amc.REQUEST_DEADLINE.get():
+                        break
+                    if time.time() - meta['movies'].get(mid, {}).get('ts', 0) >= 7 * TTL:
+                        try:
+                            meta['movies'][mid] = {**amc.get_movie_details(int(mid)), 'ts': time.time()}
+                        except Exception:
+                            app.logger.warning('Movie details unavailable for %s', mid)
+                for mid in batch:
+                    if time.monotonic() >= amc.REQUEST_DEADLINE.get():
+                        break
+                    if mid not in meta['movies']:
+                        continue
+                    if time.time() - meta['ratings'].get(mid, {}).get('ts', 0) < 7 * TTL:
+                        continue
+                    details = meta['movies'][mid]
+                    try:
+                        rating, synopsis, url = amc.get_lb_data(titles[mid], details.get('release_year'), details.get('director'))
+                        # Deadline exhaustion is not a genuine unrated movie.
+                        if time.monotonic() < amc.REQUEST_DEADLINE.get():
+                            meta['ratings'][mid] = {'rating': rating, 'url': url or '', 'ts': time.time()}
+                    except Exception:
+                        app.logger.warning('Rating unavailable for %s', mid)
+            finally:
+                amc.REQUEST_DEADLINE.reset(token)
+                store.put(f'metadata/{tid}.json', meta)
+    return jsonify(ok=True, metadata={mid: {
+        **{k: meta['movies'].get(mid, {}).get(k, '') for k in ('poster', 'synopsis', 'director', 'cast')},
+        'lb_rating': meta['ratings'].get(mid, {}).get('rating', 'N/A'),
+        'lb_url': meta['ratings'].get(mid, {}).get('url', '')
+    } for mid in titles}, pending=sum(metadata_due(meta, mid) for mid in titles), retry_after=retry_after)
+
 
 
 def make_movies(raw, theater, day, meta, fetched_at=0):
@@ -258,7 +283,7 @@ def showtimes():
         if not theater:
             return jsonify(ok=False, error='Unknown theater'), 400
         selected = [theater]
-    meta = metadata()
+    meta = metadata([t['id'] for t in selected])
     movies = []
     pending = []
     stamps = []
@@ -295,12 +320,8 @@ def theater_day():
     if not theater:
         return jsonify(ok=False, error='Unknown theater'), 400
     force = bool(body.get('refresh'))
-    if force:
-        denied = require_owner()
-        if denied:
-            return denied
     saved, warning = fetch_day(theater, day, force)
-    return jsonify(ok=True, movies=make_movies(saved['raw'], theater, day, metadata(), saved['ts']) if saved else [],
+    return jsonify(ok=True, movies=make_movies(saved['raw'], theater, day, metadata([tid]), saved['ts']) if saved else [],
                    cached_at=saved['ts'] if saved else 0, warning=warning)
 
 
@@ -354,6 +375,6 @@ def cron():
 
 @app.get('/api/health')
 def health():
-    return jsonify(ok=True, mode='vercel', owner_configured=bool(app.secret_key),
+    return jsonify(ok=True, mode='vercel',
                    amc_configured=bool(amc.VENDOR_KEY),
                    storage_configured=bool(os.environ.get('BLOB_READ_WRITE_TOKEN') or store.local))

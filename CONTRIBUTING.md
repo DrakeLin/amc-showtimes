@@ -35,7 +35,7 @@ Thanks for your interest! This is a small personal-scale project, so the process
 3. Also verify against the live APIs by running the app and exercising the UI, including `/api/fills` seat-status coloring if you touched it.
 4. Open a PR with a short description of what changed and why. Screenshots appreciated for UI changes.
 
-Vercel changes also require the owner authorization and durable-cache tests in
+Vercel changes also require the public settings and durable-cache tests in
 `tests/test_vercel.py`. Use `app.py` for local Vercel behavior and `server.py` for
 legacy Cloud Run behavior. Never seed production with test fixture theater IDs or
 mock schedules, and do not connect Preview to the production Blob store.
