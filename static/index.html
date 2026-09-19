@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#d4a5a0">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="AMC SF">
-  <title>AMC SF Showtimes</title>
+  <meta name="apple-mobile-web-app-title" content="Showtimes">
+  <title>Showtimes</title>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" type="image/png" href="/static/icon-192.png">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
@@ -16,15 +16,19 @@
 <body>
   <header>
     <div class="header-inner">
-      <h1>AMC SF</h1>
+      <h1>Showtimes</h1>
+      <div class="header-actions">
+      <button id="settingsBtn" class="icon-btn hidden" type="button" aria-label="Theater settings" title="Theater settings">Settings</button>
       <button id="refreshBtn" class="icon-btn" title="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/>
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>
       </button>
+      </div>
     </div>
     <p id="subtitle" class="subtitle"></p>
+    <div id="theatreFilters" class="theatre-filters"></div>
     <div id="dayFilters" class="day-filters"></div>
     <p class="filter-caption">Tap a day to set custom hours, tap × to skip it</p>
     <div class="seat-legend">
@@ -34,6 +38,16 @@
     </div>
   </header>
 
+  <dialog id="theaterSettings" class="theater-settings" aria-labelledby="settingsTitle">
+    <div class="settings-heading"><div><h2 id="settingsTitle">Theater settings</h2><p>Choose the theaters Showtimes keeps up to date.</p></div><button id="closeSettings" type="button" aria-label="Close settings">×</button></div>
+    <section class="settings-section"><h3>Included in daily refresh</h3><div id="favoriteList"></div><p class="settings-hint">Shared by everyone · up to 3 theaters. Your main-screen filters stay personal.</p></section>
+    <section id="ownerControls" class="settings-section">
+      <form id="theaterSearchForm"><label for="theaterSearch">Add a theater</label><div class="search-line"><input id="theaterSearch" type="search" placeholder="Search AMC theaters…" maxlength="80" required><button type="submit">Search</button></div></form>
+      <div id="theaterResults"></div>
+      <div class="settings-actions"><button id="saveFavorites" class="primary-btn" type="button">Save theaters</button></div>
+    </section>
+    <p id="settingsStatus" role="status" aria-live="polite"></p>
+  </dialog>
   <main>
     <div id="timePopover" class="time-popover hidden">
       <div class="time-popover-inner">
@@ -66,5 +80,6 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/favorites.js"></script>
 </body>
 </html>

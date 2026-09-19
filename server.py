@@ -538,7 +538,8 @@ def _start_refresh_thread():
     print("auto-refresh: thread started (every 12h)", file=sys.stderr)
 
 
-_start_refresh_thread()
+if not os.environ.get("VERCEL") and not os.environ.get("AMC_SERVERLESS"):
+    _start_refresh_thread()
 
 
 # -- Entrypoint (local dev; prod runs via gunicorn, see Dockerfile) ----------------

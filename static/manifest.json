@@ -1,7 +1,7 @@
 {
-  "name": "AMC Showtimes SF",
-  "short_name": "AMC SF",
-  "description": "AMC SF showtimes with Letterboxd ratings and live seat status",
+  "name": "Showtimes",
+  "short_name": "Showtimes",
+  "description": "Showtimes — favorite theaters, movie times, and Letterboxd ratings",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fdf8f6",

@@ -62,6 +62,80 @@ function isMovieShowingsVisible(title) {
 let filterState = loadFilterState();
 let activePopoverDow = null;
 
+// -- Theatre picker: hide/show theatres client-side, persisted like the day
+// filters. Chips are built from whatever theatres the schedule contains, so
+// deployments with a different AMC_THEATRES set need no frontend changes.
+const THEATRE_STORE_KEY = "theatreFilters.v1";
+
+function loadTheatreState() {
+  try {
+    return JSON.parse(localStorage.getItem(THEATRE_STORE_KEY) || "{}");
+  } catch (err) {
+    return {};
+  }
+}
+
+let theatreState = loadTheatreState(); // short name -> false when hidden
+
+function isTheatreEnabled(short) {
+  return theatreState[short] !== false;
+}
+
+function renderTheatreFilters(shorts) {
+  const container = $("theatreFilters");
+  container.replaceChildren();
+  if (!shorts.length) return;
+  const label = document.createElement("span");
+  label.className = "theater-filter-label";
+  label.textContent = "Theaters:";
+  container.append(label);
+  const toggle = (short, enabled) => {
+    theatreState[short] = enabled;
+    localStorage.setItem(THEATRE_STORE_KEY, JSON.stringify(theatreState));
+    renderTheatreFilters(shorts);
+    applyFilters();
+  };
+  for (const short of shorts.filter(isTheatreEnabled)) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "theatre-chip";
+    chip.textContent = `${short} ×`;
+    chip.setAttribute("aria-label", `Hide ${short} showtimes`);
+    chip.addEventListener("click", () => toggle(short, false));
+    container.append(chip);
+  }
+  const hidden = shorts.filter(short => !isTheatreEnabled(short));
+  const picker = document.createElement("details");
+  picker.className = "theater-add";
+  const add = document.createElement("summary");
+  add.textContent = "+";
+  add.setAttribute("aria-label", "Add theater to view");
+  picker.append(add);
+  const menu = document.createElement("div");
+  menu.className = "theater-add-menu";
+  if (!hidden.length) {
+    const note = document.createElement("p");
+    note.textContent = "All included theaters are shown.";
+    menu.append(note);
+  }
+  for (const short of hidden) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = short;
+    item.addEventListener("click", () => toggle(short, true));
+    menu.append(item);
+  }
+  if ($("settingsBtn") && !$("settingsBtn").classList.contains("hidden")) {
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.textContent = "Manage refresh list…";
+    manage.addEventListener("click", () => { picker.open = false; $("settingsBtn").click(); });
+    menu.append(manage);
+  }
+  picker.append(menu);
+  container.append(picker);
+}
+
 // ---------------------------------------------------------------------------
 // Time-range popover (two-knob slider, opened from a day chip)
 // ---------------------------------------------------------------------------
@@ -249,7 +323,9 @@ function applyFilters() {
         const entry = filterState[dow];
         let venueVisible = false;
 
-        if (entry.mode !== "rejected") {
+        if (!isTheatreEnabled(venueEl.dataset.theatre)) {
+          venueEl.querySelectorAll(".time-chip").forEach(chip => chip.classList.add("hidden"));
+        } else if (entry.mode !== "rejected") {
           venueEl.querySelectorAll(".time-chip").forEach(chip => {
             const t24 = chip.dataset.t24;
             const visible = entry.mode === "open" || timeInRange(t24, entry.start, entry.end);
@@ -283,26 +359,26 @@ function renderMovie(movie) {
   let rating = "";
   if (movie.lb_url) {
     const text = movie.lb_rating && movie.lb_rating !== "N/A"
-      ? `Letterboxd: <span class="star">★</span> ${movie.lb_rating}`
+      ? `Letterboxd: <span class="star">★</span> ${escapeHtml(movie.lb_rating)}`
       : `Letterboxd: <span class="star">★</span> N/A`;
-    rating = `<a class="lb-link" href="${movie.lb_url}" target="_blank" rel="noopener"><span class="lb-badge ${movie.lb_rating === "N/A" ? "lb-na" : ""}">${text}</span></a>`;
+    rating = `<a class="lb-link" href="${safeUrl(movie.lb_url)}" target="_blank" rel="noopener"><span class="lb-badge ${movie.lb_rating === "N/A" ? "lb-na" : ""}">${text}</span></a>`;
   } else {
     rating = `<span class="lb-badge lb-na">N/A</span>`;
   }
 
   const synopsis = movie.synopsis
-    ? `<p class="synopsis">${movie.synopsis.length > 280 ? movie.synopsis.slice(0, 277) + "…" : movie.synopsis}</p>`
+    ? `<p class="synopsis">${escapeHtml(movie.synopsis.length > 280 ? movie.synopsis.slice(0, 277) + "…" : movie.synopsis)}</p>`
     : "";
 
   const creditParts = [];
-  if (movie.director) creditParts.push(`<span class="credit-label">Dir.</span> ${movie.director}`);
-  if (movie.cast) creditParts.push(`<span class="credit-label">Cast</span> ${movie.cast}`);
+  if (movie.director) creditParts.push(`<span class="credit-label">Dir.</span> ${escapeHtml(movie.director)}`);
+  if (movie.cast) creditParts.push(`<span class="credit-label">Cast</span> ${escapeHtml(movie.cast)}`);
   const credits = creditParts.length
     ? `<p class="credits">${creditParts.join('<span class="credit-sep">·</span>')}</p>`
     : "";
 
   const poster = movie.poster
-    ? `<img class="poster" src="${movie.poster}" alt="" loading="lazy">`
+    ? `<img class="poster" src="${safeUrl(movie.poster)}" alt="" loading="lazy">`
     : `<div class="poster poster-placeholder" aria-hidden="true">🎬</div>`;
 
   const showingsVisible = isMovieShowingsVisible(movie.title);
@@ -320,21 +396,21 @@ function renderMovie(movie) {
       const dow = dowFromDateStr(g.items[0].date);
       const venues = g.items.map(s => {
         const fmt = s.format && s.format !== "Standard"
-          ? `<span class="format-tag">${s.format.replace(" at AMC", "")}</span>`
+          ? `<span class="format-tag">${escapeHtml(s.format.replace(" at AMC", ""))}</span>`
           : "";
         const times24 = s.times24 || [];
-        const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${t}</span>`).join("");
+        const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${escapeHtml(t)}</span>`).join("");
         return `
-          <div class="venue-block" data-fill-key="${s.fill_key}" data-dow="${dow}">
+          <div class="venue-block" data-fill-key="${escapeHtml(s.fill_key)}" data-dow="${dow}" data-theatre="${escapeHtml(s.theatre_short)}">
             <div>
-              <div class="showing-venue">${s.theatre_short}${fmt}</div>
+              <div class="showing-venue">${escapeHtml(s.theatre_short)}${fmt}</div>
               <div class="times">${times}</div>
             </div>
           </div>`;
       }).join("");
       return `
         <div class="showing-row">
-          <div class="showing-date">${g.label}</div>
+          <div class="showing-date">${escapeHtml(g.label)}</div>
           <div class="venue-list">${venues}</div>
         </div>`;
     }).join("");
@@ -345,7 +421,7 @@ function renderMovie(movie) {
         ${poster}
         <div class="movie-info">
           <div class="movie-title-row">
-            <span class="movie-title">${movie.title}</span>
+            <span class="movie-title">${escapeHtml(movie.title)}</span>
             ${rating}
           </div>
           ${credits}
@@ -362,6 +438,13 @@ function renderMovie(movie) {
       </div>
       <div class="showings${showingsVisible ? '' : ' hidden'}">${rows}</div>
     </div>`;
+}
+
+function safeUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? escapeHtml(url.href) : "";
+  } catch (_) { return ""; }
 }
 
 // Simple HTML escaper for attribute safety when injecting movie titles
@@ -504,6 +587,9 @@ async function load(forceRefresh = false) {
       $("movies").innerHTML = `<div class="empty">No showtimes found for the next 7 days.</div>`;
     } else {
       $("movies").innerHTML = movies.map(renderMovie).join("");
+      renderTheatreFilters([...new Set(
+        movies.flatMap(m => m.showings.map(s => s.theatre_short))
+      )].sort());
       applyFilters();
       attachMovieToggleHandlers();
     }
@@ -525,7 +611,5 @@ async function load(forceRefresh = false) {
   }
 }
 
-$("refreshBtn").addEventListener("click", () => load(true));
 renderDayFilters();
-load();
 

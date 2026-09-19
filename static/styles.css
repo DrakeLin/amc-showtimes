@@ -76,6 +76,36 @@ h1 {
 main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; position: relative; }
 
 /* Day filter chips */
+.theatre-filters {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theatre-filters:empty {
+  display: none;
+}
+
+.theatre-chip {
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.theatre-chip.off {
+  opacity: 0.45;
+  border-color: var(--text2);
+  text-decoration: line-through;
+}
+
 .day-filters {
   display: flex;
   gap: 6px;
@@ -595,3 +625,40 @@ main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; position: rela
   color: var(--text2);
   font-size: 0.9rem;
 }
+
+
+.header-actions { display: flex; align-items: center; gap: 8px; }
+#settingsBtn { font: inherit; font-size: .8rem; padding: 8px 10px; }
+.theatre-filters { align-items: center; flex-wrap: wrap; }
+.theater-filter-label { font-size: .78rem; color: var(--text2); margin-right: 2px; }
+.theater-add { position: relative; }
+.theater-add > summary { list-style: none; display: grid; place-items: center; width: 30px; height: 30px; border: 1px dashed var(--border); border-radius: 50%; cursor: pointer; }
+.theater-add > summary::-webkit-details-marker { display: none; }
+.theater-add-menu { position: absolute; top: 36px; left: 0; width: 210px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px #4a424015; z-index: 30; }
+.theater-add-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px; color: var(--text); font: inherit; font-size: .85rem; cursor: pointer; border-radius: 6px; }
+.theater-add-menu button:hover { background: var(--surface2); }
+.theater-add-menu p { padding: 8px; font-size: .8rem; color: var(--text2); }
+.theater-settings { width: min(480px, calc(100vw - 32px)); max-height: 85dvh; margin: auto; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--bg); color: var(--text); }
+.theater-settings::backdrop { background: #30272565; backdrop-filter: blur(3px); }
+.settings-heading { display: flex; align-items: flex-start; gap: 16px; justify-content: space-between; }
+.settings-heading h2 { font-size: 1.25rem; letter-spacing: -.02em; margin-bottom: 6px; }
+.settings-heading p, .settings-hint { color: var(--text2); font-size: .82rem; line-height: 1.5; }
+.theater-settings button { min-height: 38px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; cursor: pointer; }
+#closeSettings { border: none; background: transparent; font-size: 1.3rem; padding: 0 6px; }
+.settings-section { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 18px; }
+.settings-section h3 { font-size: .85rem; font-weight: 600; margin-bottom: 10px; }
+.theater-option { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.theater-option > :first-child { flex: 1; font-size: .9rem; }
+.theater-option > span:last-child { color: var(--text2); font-size: .75rem; }
+.theater-option > button { font-size: 1.2rem; width: 38px; }
+.theater-settings label { display: block; margin-bottom: 8px; font-size: .85rem; font-weight: 600; }
+.search-line { display: flex; gap: 8px; }
+.theater-settings input { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 9px; padding: 10px; font: inherit; font-size: .9rem; }
+.settings-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.theater-settings .primary-btn { background: var(--text); color: #fff; border-color: var(--text); }
+#ownerSettings summary { font-size: .85rem; cursor: pointer; }
+#ownerSettings p { margin: 10px 0; }
+#settingsStatus { font-size: .8rem; line-height: 1.5; margin-top: 14px; }
+#settingsStatus:empty { display: none; }
+button:disabled { opacity: .6; cursor: wait; }
+button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid #80544f; outline-offset: 3px; }

@@ -81,7 +81,7 @@ To redeploy after code changes, just re-run the same `gcloud run deploy` command
 
 - [ ] Pull-to-refresh gesture on mobile instead of only the header button.
 - [ ] Push notifications when a highly-rated movie gets added to the week's schedule (would need a Web Push backend + VAPID keys — adds real infra, not free).
-- [ ] Theatre picker UI — the theatre *set* is env-configurable (`AMC_THEATRES="Name:id,..."`), but the per-theatre toggle chips were built and then removed by choice (2026-07; see git history to restore).
+- [x] Theatre picker UI — restored local toggle chips for configured theatres. Switching chips filters the loaded schedule only: no fetches, cache invalidations, or added background refreshes. The theatre set remains configurable through `AMC_THEATRES`.
 - [x] ~~Show/skip movies already seen~~ — covered in practice by the per-movie collapsible showtimes (collapse = skip, persisted per title).
 - [ ] Trailer links (YouTube search link or TMDB API) per movie card. (Judged not worth it for now, along with pull-to-refresh and push notifications.)
 
@@ -92,3 +92,19 @@ Defaults and UI notes:
 - Time-range semantics: start==end is treated as full-day; default full-day sentinel is `23:59`.
 - Letterboxd badge: if a Letterboxd page exists we show `Letterboxd: ★ <rating>`; if page exists but rating is unavailable we show `Letterboxd: ★ N/A`; if no Letterboxd page is found we show plain `N/A`.
 - The time picker UI uses two knobs; sliders are spaced for touch and labels show concise AM/PM (e.g., `3 AM – 4:30 PM`).
+
+## Vercel / Showtimes entrypoint
+
+`app.py` + `storage.py` implement the Vercel migration; see README's deployment
+section for setup and limits. This entrypoint does not use GCS or start the legacy
+refresh thread. The shared theater list is publicly editable, persisted separately in private Blob,
+and initially resolve NewPark/Mercado from AMC's live catalog. Only three favorites
+are permitted to constrain daily prefetch costs. Browser theater filters are still
+local preferences; they cannot change server favorites. Each theater/day fetch has
+a deadline and a durable five-minute claim. Claims throttle rather than guarantee
+exclusive execution across slot boundaries. Cron prioritizes daily theater snapshots then optionally enriches metadata/ratings.
+The browser also requests bounded on-demand metadata batches; posters and ratings
+must not depend on cron. Top-right Settings edits the shared refresh list; the main
+Theaters row only filters locally. No OWNER_ACCESS_KEY or account is used. The Python Vercel SDK is the added runtime
+dependency for supported private Blob reads/writes; it is pinned. The old Cloud Run
+API is retained for rollback until the migrated deployment is verified.
