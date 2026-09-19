@@ -71,7 +71,7 @@ class VercelTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json['movies'][0]['title'], 'Example')
         self.assertEqual(first.json['cached_at'], second.json['cached_at'])
-        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(fetch.call_count, 7)
 
     def test_failure_preserves_old_snapshot_and_claim_throttles_retries(self):
         day = web.dates()[0]
@@ -82,22 +82,22 @@ class VercelTests(unittest.TestCase):
             self.client.post('/api/theater-day', json={'theater': 101, 'date': day})
         self.assertTrue(first.json['warning'])
         self.assertEqual(web.cached_day(101, day), old)
-        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(fetch.call_count, 7)
 
     def test_public_force_refresh_remains_throttled(self):
         with patch('amc.fetch_showtimes', return_value=[]) as fetch:
             body = {'theater': 101, 'date': web.dates()[0], 'refresh': True}
             self.assertEqual(self.client.post('/api/theater-day', json=body).status_code, 200)
             self.client.post('/api/theater-day', json=body)
-            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(fetch.call_count, 7)
 
     def test_cron_protected_and_only_refreshes_current_favorites(self):
         self.client.put('/api/favorites', json={'ids': [102]}, headers=self.login())
         self.assertEqual(self.client.get('/api/cron').status_code, 401)
-        with patch.object(web, 'fetch_day', return_value=({'raw': []}, None)) as fetch:
+        with patch.object(web, 'fetch_week', return_value=({'days': {}}, None)) as fetch:
             result = self.client.get('/api/cron', headers={'Authorization': 'Bearer cron-test'})
         self.assertEqual(result.status_code, 200)
-        self.assertEqual(fetch.call_count, 7)
+        self.assertEqual(fetch.call_count, 1)
         self.assertEqual({call.args[0]['id'] for call in fetch.call_args_list}, {102})
 
     def test_storage_failure_not_acknowledged_as_saved(self):
@@ -165,3 +165,79 @@ class VercelTests(unittest.TestCase):
         self.assertEqual(len(self.client.get('/api/favorites').json['theaters']), 10)
         self.assertEqual(self.client.put('/api/favorites', json={'ids': ids}).status_code, 400)
         self.assertEqual(len(self.client.get('/api/favorites').json['theaters']), 10)
+
+
+    def test_ten_theater_cron_uses_twenty_schedule_writes(self):
+        theaters = [{'id': i, 'name': f'AMC Test {i}'} for i in range(201, 211)]
+        web.store.put('favorites.json', {'theaters': theaters})
+        with patch('amc.fetch_showtimes', return_value=[]) as fetch, patch.object(web.store, 'put', wraps=web.store.put) as put:
+            response = self.client.get('/api/cron', headers={'Authorization': 'Bearer cron-test'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fetch.call_count, 70)
+        self.assertEqual(put.call_count, 20)  # ten claims and ten weekly snapshots
+        with patch.object(web.store, 'get', wraps=web.store.get) as get:
+            response = self.client.get('/api/showtimes')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get.call_count, 22)  # settings + global metadata + two records/theater
+        self.assertEqual(response.json['pending'], [])
+        self.assertEqual(response.json['metadata_pending'], [])
+
+    def test_week_migrates_old_dates_and_keeps_failed_date(self):
+        week = web.dates()
+        old = {'date': week[0], 'ts': time.time() - 90000, 'raw': []}
+        web.store.put(web.day_key(101, week[0]), old)
+        def fetch(tid, day):
+            if day.isoformat() == week[0]:
+                raise TimeoutError('one date unavailable')
+            return []
+        with patch('amc.fetch_showtimes', side_effect=fetch), patch.object(web.store, 'put', wraps=web.store.put) as put:
+            response = self.client.post('/api/theater-week', json={'theater': 101})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json['warning'])
+        self.assertEqual(put.call_count, 2)
+        saved = web.store.get('schedules/101.json')['days']
+        self.assertEqual(len(saved), 7)
+        self.assertEqual(saved[week[0]], old)
+        self.assertGreater(saved[week[1]]['ts'], old['ts'])
+        web.store = Store()  # migration survives a new function instance
+        self.assertEqual(web.cached_day(101, week[0]), old)
+
+    def test_week_write_failure_is_not_reported_as_success(self):
+        original = web.store.put
+        def put(key, *args, **kwargs):
+            if key == 'schedules/101.json':
+                raise RuntimeError('write failed')
+            return original(key, *args, **kwargs)
+        with patch('amc.fetch_showtimes', return_value=[]), patch.object(web.store, 'put', side_effect=put):
+            response = self.client.post('/api/theater-week', json={'theater': 101})
+        self.assertEqual(response.status_code, 503)
+
+    def test_week_rollover_drops_old_dates_and_fetches_only_new_day(self):
+        week = web.dates()
+        saved = {day: {'date': day, 'ts': time.time(), 'raw': []} for day in week}
+        web.store.put('schedules/101.json', {'days': saved})
+        tomorrow = web.today() + web.timedelta(days=1)
+        with patch.object(web, 'today', return_value=tomorrow), patch('amc.fetch_showtimes', return_value=[]) as fetch:
+            response = self.client.post('/api/theater-week', json={'theater': 101})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertNotIn(week[0], web.store.get('schedules/101.json')['days'])
+
+    def test_metadata_pending_only_when_known_movies_need_enrichment(self):
+        day = web.dates()[0]
+        web.store.put('schedules/101.json', {'days': {day: {'date': day, 'ts': time.time(), 'raw': [
+            {'movieId': 8, 'movieTitle': 'Example', 'showDateTimeLocal': day + 'T19:00:00'}]}}})
+        self.assertEqual(self.client.get('/api/showtimes').json['metadata_pending'], [101])
+        web.store.put('metadata/101.json', {'movies': {'8': {'ts': time.time(), 'poster': 'poster'}},
+                                          'ratings': {'8': {'ts': time.time(), 'rating': '4.2'}}})
+        result = self.client.get('/api/showtimes').json
+        self.assertEqual(result['metadata_pending'], [])
+        self.assertEqual(result['movies'][0]['poster'], 'poster')
+        self.assertEqual(result['movies'][0]['lb_rating'], '4.2')
+
+    def test_week_budget_keeps_existing_data(self):
+        with patch('amc.fetch_showtimes') as fetch:
+            saved, warning = web.fetch_week(CATALOG[0], deadline=time.monotonic() - 1)
+        fetch.assert_not_called()
+        self.assertTrue(warning)
+        self.assertEqual(saved['days'], {})

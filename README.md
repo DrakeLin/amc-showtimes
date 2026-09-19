@@ -25,10 +25,10 @@ Vercel runs `app.py`, not the legacy `server.py` web server. `server.py` is impo
 ### Loading and refreshing
 
 1. Opening the site reads saved schedules immediately.
-2. Missing or stale dates load progressively through `POST /api/theater-day`, with a 35-second upstream deadline per theater/date. Successful dates are saved immediately; failures preserve old snapshots.
-3. `POST /api/metadata` fills posters, synopsis, director/cast, and Letterboxd ratings in batches of up to four known movies, also with a 35-second upstream budget. The browser updates movie cards and rating order as batches finish. Metadata persists across cold starts, so it does not depend on waiting for cron.
+2. Missing or stale schedules load through `POST /api/theater-week`: one request per theater, a shared 35-second upstream budget, and one saved snapshot containing all seven dates. Successful dates are committed together; failed dates retain their previous data. Fetching remains sequential to respect upstream services.
+3. `POST /api/metadata` fills posters, synopsis, director/cast, and Letterboxd ratings in batches of up to four known movies, also with a 35-second upstream budget. The browser updates movie cards and rating order as batches finish. Metadata persists across cold starts, so it does not depend on waiting for cron. The schedule response identifies theaters with stale/missing metadata; a fully warm page skips these batch requests entirely.
 4. A daily cron at **12:00 UTC** refreshes only the current shared theaters. Hobby cron timing has a one-hour window. It prioritizes schedules, with optional metadata enrichment afterward.
-5. The Refresh button may request an early schedule refresh, but a five-minute minimum age and immutable request claims limit duplicate upstream work.
+5. The Refresh button may request an early schedule refresh, but a five-minute minimum age and one immutable claim per theater limits duplicate upstream work.
 
 Posters and credits come from AMC movie records. Letterboxd film matching uses the title plus release year and director to avoid confusing same-named films. Some films/events legitimately have no rating. Letterboxd scraping is unofficial and can fail independently of schedules or posters.
 
@@ -40,10 +40,14 @@ Posters and credits come from AMC movie records. Letterboxd film matching uses t
 | --- | --- |
 | `favorites.json` | Shared refresh list; independent of schedule refreshes |
 | `catalog.json` | AMC theater directory, seven-day cache |
-| `schedules/{theater}/{weekday}.json` | Seven reusable schedule slots per theater; actual date checked; 24-hour freshness |
+| `schedules/{theater}.json` | One rolling seven-date snapshot per theater; each date has its own 24-hour freshness timestamp |
 | `metadata/{theater}.json` | On-demand movie details and ratings; seven-day freshness |
 | `metadata.json` | Metadata populated by cron, reused by on-demand batches |
 | `claims/{time-slot}/…` | Immutable claims to suppress duplicate fetches; small records accumulate |
+
+Existing `schedules/{theater}/{weekday}.json` files remain readable until the first refresh migrates that theater. They are not deleted during rollout. Old installed clients can still call `/api/theater-day`; it uses the same weekly writer and returns the requested date.
+
+Schedule/metadata reads are memoized within each request where needed and may use Blob’s 60-second CDN cache. Refreshes read uncached snapshots, return newly saved data directly, and preserve per-date freshness. Shared settings bypass the cache. A different visitor can see the previous schedule/metadata for up to 60 seconds.
 
 Claims provide throttling, not a transactional distributed lock: a time-slot boundary can permit overlap. Shared theater edits use last-save-wins behavior. The private Blob token is server-only; visitors use validated app endpoints, not direct storage access.
 
@@ -73,7 +77,11 @@ The current project is connected to **DrakeLin/amc-showtimes**, with **main** as
 
 This is designed for personal-scale use on **Hobby**, with the included `vercel.app` domain and private Blob allowance. No paid database, paid domain, or plan upgrade is needed. It is not unlimited hosting: functions, Blob reads/writes, storage, and transfer all have quotas. Public edits and refreshes consume the same allowances.
 
-Two theaters × seven dates × 30 days is roughly 420 schedule writes and 420 claim writes per month, plus metadata, settings, and any early refreshes. Ten theaters raise that baseline to roughly 4,200 writes before metadata if every date is refreshed daily; this can exceed the free Blob operation allowance. The 10-theater selection limit is not a guarantee that ten daily refreshes fit free quotas. Monitor Vercel Usage, especially Blob operation quotas. Daily cron, the 10-theater cap, bounded requests, and cached metadata keep routine use small.
+A full scheduled refresh uses **two writes per theater** (one claim + one weekly snapshot), rather than two per theater/date. Ten theaters × two writes × 30 days = **600 schedule/claim writes per month**, down from 4,200. Metadata, settings, directory refreshes, and manual refreshes are additional. At ten theaters, each additional full manual refresh costs up to 20 schedule/claim writes; frequent manual refreshes can still exhaust the allowance. The five-minute cooldown suppresses repeated successful refreshes but is not a monthly quota enforcer.
+
+After migration, `/api/showtimes` reads **2N + 2 records** for N theaters: shared settings, global metadata, and one schedule + one metadata record per theater. A fully warm page adds one settings read and no metadata POSTs: **23 reads for ten theaters**, versus 183 previously. CDN cache hits reduce billed simple operations further. Initial migration, missing data, metadata batches, settings searches, and retries cost extra. An offline operation-count test checks the ten-theater baseline.
+
+[Vercel Blob Hobby](https://vercel.com/docs/vercel-blob/usage-and-pricing) includes 2,000 advanced operations and 10,000 simple operations monthly. These are monthly allowances, not a ten-refreshes-per-day quota. Monitor Usage; this optimization provides headroom for personal use, not unlimited public traffic. Cron retains a 200-second overall schedule budget; unfinished theaters/dates load on demand.
 
 ## Repository layout
 
@@ -98,7 +106,8 @@ tests/              Offline backend tests
 | `/api/theatres?q=…` | GET | Search the cached AMC directory |
 | `/api/favorites` | GET / PUT | Read or replace shared theater IDs; public writes require JSON; maximum 10 |
 | `/api/showtimes` | GET | Cached movies and schedules, plus missing/stale theater-date jobs |
-| `/api/theater-day` | POST | Fetch one valid theater/date; optional throttled refresh |
+| `/api/theater-week` | POST | Refresh stale dates for one theater, persist one weekly snapshot; optional throttled early refresh |
+| `/api/theater-day` | POST | Compatibility route: uses the weekly refresh, returns one valid date |
 | `/api/metadata` | POST | Populate cached movie details and ratings for known schedules at a theater |
 | `/api/cron` | GET | Daily refresh; requires `Authorization: Bearer <CRON_SECRET>` |
 
@@ -112,6 +121,7 @@ LOCAL_DATA_DIR=.local-data .venv/bin/flask --app app run --debug
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/favorites.js
+node tests/test_favorites.cjs
 ```
 
 `LOCAL_DATA_DIR` is ignored on Vercel; ephemeral disk must never silently replace durable storage. The Python `vercel` SDK is pinned to `0.11.3`; its synchronous Blob API uses `overwrite` and `result.content`.

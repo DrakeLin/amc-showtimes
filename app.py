@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 os.environ['AMC_SERVERLESS'] = '1'
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, has_request_context, jsonify, request, send_from_directory
 import amc
 import server as legacy
 from storage import Store
@@ -53,7 +53,7 @@ def index():
 
 
 def catalog():
-    saved = store.get('catalog.json')
+    saved = store.get('catalog.json', cached=True)
     if saved and time.time() - saved['ts'] < 7 * TTL:
         return saved['theaters']
     token = amc.REQUEST_DEADLINE.set(time.monotonic() + 60)
@@ -134,15 +134,33 @@ def day_key(tid, day):
     return f'schedules/{tid}/{datetime.fromisoformat(day).weekday()}.json'
 
 
+def schedule(tid):
+    # One read per theater per request; no process-local state survives as truth.
+    memo = g.setdefault('schedules', {}) if has_request_context() else {}
+    if tid not in memo:
+        cached = has_request_context() and request.method == 'GET' and request.path != '/api/cron'
+        saved = store.get(f'schedules/{tid}.json', cached=cached)
+        if saved is None:
+            # Rolling migration: old snapshots remain visible until the first refresh.
+            days = {}
+            for day in dates():
+                old = store.get(day_key(tid, day), cached=cached)
+                if old and old.get('date') == day:
+                    days[day] = old
+            saved = {'days': days}
+        memo[tid] = saved
+    return memo[tid]
+
+
 def cached_day(tid, day):
-    saved = store.get(day_key(tid, day))
-    return saved if saved and saved.get('date') == day else None
+    return schedule(tid).get('days', {}).get(day)
 
 
 def metadata(theater_ids=()):
-    result = store.get('metadata.json') or {'movies': {}, 'ratings': {}}
+    cached = has_request_context() and request.method == 'GET' and request.path != '/api/cron'
+    result = store.get('metadata.json', cached=cached) or {'movies': {}, 'ratings': {}}
     for tid in theater_ids:
-        saved = store.get(f'metadata/{tid}.json') or {}
+        saved = store.get(f'metadata/{tid}.json', cached=cached) or {}
         for kind in ('movies', 'ratings'):
             for mid, entry in saved.get(kind, {}).items():
                 if entry.get('ts', 0) >= result[kind].get(mid, {}).get('ts', 0):
@@ -245,26 +263,45 @@ def make_movies(raw, theater, day, meta, fetched_at=0):
     return list(grouped.values())
 
 
-def fetch_day(theater, day, force=False, deadline=None):
-    old = cached_day(theater['id'], day)
-    if old and time.time() - old['ts'] < (300 if force else TTL):
-        return old, None
-    # Claim lasts for this time slot, even on upstream error: retries cannot hammer AMC.
-    slot = int(time.time() // 300)
-    key = f'claims/{slot}/{theater["id"]}-{day}.json'
-    if not store.claim(key):
-        return old, 'This theater is being refreshed, or was recently attempted. Retry in a few minutes.'
-    token = amc.REQUEST_DEADLINE.set(min(deadline or float('inf'), time.monotonic() + 35))
-    try:
-        raw = amc.fetch_showtimes(theater['id'], datetime.fromisoformat(day).date())
-        saved = {'date': day, 'ts': time.time(), 'raw': raw}
-        store.put(day_key(theater['id'], day), saved)
+def fetch_week(theater, force=False, deadline=None):
+    tid = theater['id']
+    week = dates()
+    previous = schedule(tid)
+    saved = {'days': {day: row for day, row in previous.get('days', {}).items() if day in week}}
+    due = [day for day in week if day not in saved['days'] or
+           time.time() - saved['days'][day]['ts'] >= (300 if force else TTL)]
+    if not due:
         return saved, None
-    except Exception:
-        app.logger.exception('Theater-day fetch failed')
-        return old, 'Could not refresh this date. Previous showtimes are kept; retry in a few minutes.'
+    key = f'claims/{int(time.time() // 300)}/week-{tid}.json'
+    if not store.claim(key):
+        return saved, 'This theater is being refreshed, or was recently attempted. Retry in a few minutes.'
+    token = amc.REQUEST_DEADLINE.set(min(deadline or float('inf'), time.monotonic() + 35))
+    warning = None
+    try:
+        for day in due:
+            if time.monotonic() >= amc.REQUEST_DEADLINE.get():
+                warning = 'Refresh budget reached. Saved dates remain available; retry in a few minutes.'
+                break
+            try:
+                raw = amc.fetch_showtimes(tid, datetime.fromisoformat(day).date())
+                saved['days'][day] = {'date': day, 'ts': time.time(), 'raw': raw}
+            except Exception:
+                app.logger.exception('Theater date fetch failed')
+                warning = 'Some dates could not refresh. Previous showtimes are kept; retry in a few minutes.'
     finally:
         amc.REQUEST_DEADLINE.reset(token)
+    # Exactly one snapshot write, including partial success and an empty migration.
+    # Storage failures propagate; never acknowledge data that was not persisted.
+    store.put(f'schedules/{tid}.json', saved)
+    if has_request_context():
+        g.setdefault('schedules', {})[tid] = saved
+    return saved, warning
+
+
+def fetch_day(theater, day, force=False, deadline=None):
+    # Compatibility for older installed clients, sharing the same weekly writer.
+    saved, warning = fetch_week(theater, force, deadline)
+    return saved['days'].get(day), warning
 
 
 def find_theater(tid):
@@ -287,16 +324,19 @@ def showtimes():
     movies = []
     pending = []
     stamps = []
+    metadata_pending = set()
     for day in dates():
         for theater in selected:
             saved = cached_day(theater['id'], day)
             if saved:
                 movies.extend(make_movies(saved['raw'], theater, day, meta, saved['ts']))
                 stamps.append(saved['ts'])
+                if any(metadata_due(meta, str(row['movieId'])) for row in saved['raw'] if row.get('movieId')):
+                    metadata_pending.add(theater['id'])
             if not saved or time.time() - saved['ts'] >= TTL:
                 pending.append({'theater': theater['id'], 'date': day, 'name': theater['name']})
     return jsonify(ok=True, movies=merge_movies(movies), pending=pending, theaters=selected, dates=dates(),
-                   cached_at=min(stamps) if stamps else 0)
+                   cached_at=min(stamps) if stamps else 0, metadata_pending=sorted(metadata_pending))
 
 
 def merge_movies(movies):
@@ -325,6 +365,23 @@ def theater_day():
                    cached_at=saved['ts'] if saved else 0, warning=warning)
 
 
+@app.post('/api/theater-week')
+def theater_week():
+    body = request.get_json(silent=True) or {}
+    tid = body.get('theater')
+    if type(tid) is not int or not (theater := find_theater(tid)):
+        return jsonify(ok=False, error='Unknown theater'), 400
+    saved, warning = fetch_week(theater, bool(body.get('refresh')))
+    meta = metadata([tid])
+    movies, stamps, pending = [], [], False
+    for day, row in saved['days'].items():
+        movies.extend(make_movies(row['raw'], theater, day, meta, row['ts']))
+        stamps.append(row['ts'])
+        pending |= any(metadata_due(meta, str(r['movieId'])) for r in row['raw'] if r.get('movieId'))
+    return jsonify(ok=True, movies=merge_movies(movies), cached_at=min(stamps) if stamps else 0,
+                   warning=warning, metadata_pending=pending)
+
+
 @app.get('/api/cron')
 def cron():
     secret = os.environ.get('CRON_SECRET', '')
@@ -334,19 +391,18 @@ def cron():
     selected = favorites()['theaters']
     deadline = started + 200
     refreshed, warnings, movie_ids = 0, [], {}
-    for day in dates():
-        for theater in selected:
-            if time.monotonic() >= deadline:
-                warnings.append('Refresh budget reached; remaining dates will load on demand')
-                break
-            saved, warning = fetch_day(theater, day, force=True, deadline=deadline)
-            if warning:
-                warnings.append(warning)
-            if saved:
-                refreshed += 1
-                for row in saved['raw']:
-                    if row.get('movieId'):
-                        movie_ids[str(row['movieId'])] = row.get('movieTitle') or row.get('movieName', '')
+    for theater in selected:
+        if time.monotonic() >= deadline:
+            warnings.append('Refresh budget reached; remaining theaters will load on demand')
+            break
+        saved, warning = fetch_week(theater, force=True, deadline=deadline)
+        if warning:
+            warnings.append(warning)
+        for row in saved['days'].values():
+            refreshed += 1
+            for item in row['raw']:
+                if item.get('movieId'):
+                    movie_ids[str(item['movieId'])] = item.get('movieTitle') or item.get('movieName', '')
     # Enrichment is optional and happens after showtimes have safely been saved.
     meta = metadata()
     token = amc.REQUEST_DEADLINE.set(min(time.monotonic() + 35, started + 250))

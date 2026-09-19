@@ -9,7 +9,7 @@ class Store:
     def __init__(self):
         self.local = os.environ.get('LOCAL_DATA_DIR') if not os.environ.get('VERCEL') else None
 
-    def get(self, key):
+    def get(self, key, *, cached=False):
         if self.local:
             try:
                 return json.loads((Path(self.local) / key).read_text())
@@ -18,7 +18,7 @@ class Store:
         from vercel.blob import BlobClient, BlobNotFoundError
         with BlobClient() as client:
             try:
-                result = client.get(key, access='private', use_cache=False, timeout=10)
+                result = client.get(key, access='private', use_cache=cached, timeout=10)
                 return json.loads(result.content) if result else None
             except BlobNotFoundError:
                 return None

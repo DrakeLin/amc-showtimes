@@ -86,20 +86,22 @@ async function loadVercel(force = false) {
     if (generation !== loadGeneration) return;
     visibleMovies = data.movies;
     renderVisible();
-    let jobs = data.pending;
-    if (force) jobs = data.dates.flatMap(date => data.theaters.map(t => ({date, theater: t.id, name: t.name})));
+    const pendingIds = new Set(data.pending.map(job => job.theater));
+    const jobs = data.theaters.filter(t => force || pendingIds.has(t.id));
+    const metadataIds = new Set(data.metadata_pending || []);
     const warnings = [];
     let newest = data.cached_at;
     for (const [index, job] of jobs.entries()) {
       if (generation !== loadGeneration) return;
-      setLoadingText(`Loading ${job.name} · ${job.date} (${index + 1}/${jobs.length})…`);
+      setLoadingText(`Loading ${job.name} (${index + 1}/${jobs.length})…`);
       setLoadingProgress(100 * index / jobs.length);
       try {
-        const result = await api('/api/theater-day', {method: 'POST', body: JSON.stringify({...job, refresh: force})});
+        const result = await api('/api/theater-week', {method: 'POST', body: JSON.stringify({theater: job.id, refresh: force})});
         if (generation !== loadGeneration) return;
         if (result.warning) warnings.push(result.warning);
+        if (result.metadata_pending) metadataIds.add(job.id);
         if (result.cached_at) {
-          visibleMovies = visibleMovies.map(m => ({...m, showings: m.showings.filter(s => !(s.date === job.date && s.theatre === job.name))})).filter(m => m.showings.length);
+          visibleMovies = visibleMovies.map(m => ({...m, showings: m.showings.filter(s => s.theatre !== job.name)})).filter(m => m.showings.length);
           visibleMovies.push(...result.movies);
           newest = Math.max(newest, result.cached_at);
           renderVisible();
@@ -107,7 +109,7 @@ async function loadVercel(force = false) {
       } catch (err) { warnings.push(err.message); }
     }
     // Show schedules first, then progressively fill posters and verified ratings.
-    for (const theater of data.theaters) {
+    for (const theater of data.theaters.filter(t => metadataIds.has(t.id))) {
       for (let batch = 0; batch < 30; batch++) {
         if (generation !== loadGeneration) return;
         setLoadingText(`Loading posters & ratings · ${theater.name}…`);
