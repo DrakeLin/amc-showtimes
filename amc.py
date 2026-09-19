@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextvars import ContextVar
 from datetime import date
 
 # -- Configuration -------------------------------------------------------------
@@ -48,6 +49,7 @@ PAGE_SIZE = 100
 MAX_PAGES = 20
 
 VENDOR_KEY = os.environ.get("AMC_VENDOR_KEY", "")
+REQUEST_DEADLINE = ContextVar("request_deadline", default=None)
 
 _LB_RATING_RE = re.compile(
     r'<meta[^>]+name="twitter:data2"[^>]+content="([\d.]+)\s*out of',
@@ -189,21 +191,25 @@ def _get(url, headers=None, retries=4):
     delay = 1.0
     last_err = None
     for _ in range(retries):
+        deadline = REQUEST_DEADLINE.get()
+        remaining = deadline - time.monotonic() if deadline else 15
+        if remaining <= 0:
+            raise TimeoutError("Fetch deadline reached")
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=min(15, remaining)) as resp:
                 return resp.read()
         except urllib.error.HTTPError as exc:
             if exc.code == 429 or exc.code >= 500:
                 last_err = exc
                 print(f"  WARN {exc.code} on {url}, retry in {delay:.1f}s", file=sys.stderr)
-                time.sleep(delay)
+                time.sleep(min(delay, max(0, deadline - time.monotonic())) if deadline else delay)
                 delay *= 2
             else:
                 raise
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_err = exc
             print(f"  WARN network error on {url}: {exc}, retry in {delay:.1f}s", file=sys.stderr)
-            time.sleep(delay)
+            time.sleep(min(delay, max(0, deadline - time.monotonic())) if deadline else delay)
             delay *= 2
     raise RuntimeError(f"Failed after {retries} retries: {url}") from last_err
 

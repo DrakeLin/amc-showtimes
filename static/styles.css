@@ -76,6 +76,36 @@ h1 {
 main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; position: relative; }
 
 /* Day filter chips */
+.theatre-filters {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theatre-filters:empty {
+  display: none;
+}
+
+.theatre-chip {
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.theatre-chip.off {
+  opacity: 0.45;
+  border-color: var(--text2);
+  text-decoration: line-through;
+}
+
 .day-filters {
   display: flex;
   gap: 6px;
@@ -595,3 +625,20 @@ main { padding: 12px 12px 40px; max-width: 640px; margin: 0 auto; position: rela
   color: var(--text2);
   font-size: 0.9rem;
 }
+
+.theater-settings { max-width: 760px; margin: 14px auto; padding: 12px; border: 1px solid #d4a5a0; border-radius: 12px; text-align: left; }
+.theater-settings summary { cursor: pointer; font-weight: 600; padding: 5px; }
+.theater-settings p { font-size: .85rem; line-height: 1.5; }
+.theater-settings form { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.theater-settings label { flex-basis: 100%; font-size: .85rem; }
+.theater-settings input { min-width: 0; flex: 1; padding: 10px; border: 1px solid #d4a5a0; border-radius: 7px; font: inherit; }
+.theater-settings button { min-height: 42px; padding: 8px 12px; background: #fff; border: 1px solid #d4a5a0; border-radius: 7px; color: #513e3c; cursor: pointer; font: inherit; }
+.theater-settings button:focus-visible, .theater-settings input:focus-visible { outline: 2px solid #80544f; outline-offset: 2px; }
+.theater-option { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.theater-option > :first-child { flex: 1; text-align: left; }
+.theater-option > :last-child { min-width: 42px; text-align: center; font-size: 1.3rem; }
+#ownerSettings { margin-top: 14px; }
+#settingsStatus { min-height: 1.5em; }
+button:disabled { opacity: .6; cursor: wait; }
+
+.theater-settings[open] { max-height: 60vh; overflow-y: auto; }

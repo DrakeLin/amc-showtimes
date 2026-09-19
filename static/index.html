@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#d4a5a0">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="AMC SF">
-  <title>AMC SF Showtimes</title>
+  <meta name="apple-mobile-web-app-title" content="Showtimes">
+  <title>Showtimes</title>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" type="image/png" href="/static/icon-192.png">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
@@ -16,7 +16,7 @@
 <body>
   <header>
     <div class="header-inner">
-      <h1>AMC SF</h1>
+      <h1>Showtimes</h1>
       <button id="refreshBtn" class="icon-btn" title="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/>
@@ -25,6 +25,33 @@
       </button>
     </div>
     <p id="subtitle" class="subtitle"></p>
+    <details id="theaterSettings" class="theater-settings hidden">
+      <summary>Theaters &amp; favorites</summary>
+      <p>Your favorites refresh daily. Other theaters load when you browse them.</p>
+      <div id="favoriteList"></div>
+      <button id="showFavorites" type="button">View favorites</button>
+      <form id="theaterSearchForm">
+        <label for="theaterSearch">Find a theater</label>
+        <input id="theaterSearch" type="search" placeholder="NewPark, Mercado, city…" maxlength="80" required>
+        <button type="submit">Search</button>
+      </form>
+      <div id="theaterResults"></div>
+      <details id="ownerSettings">
+        <summary>Owner settings</summary>
+        <form id="ownerLogin">
+          <label for="ownerKey">Owner access key</label>
+          <input id="ownerKey" type="password" autocomplete="current-password" required>
+          <button type="submit">Unlock favorites</button>
+        </form>
+        <div id="ownerControls" class="hidden">
+          <p>Use the stars to choose up to three favorites, then save.</p>
+          <button id="saveFavorites" type="button">Save favorites</button>
+          <button id="ownerLogout" type="button">Sign out</button>
+        </div>
+      </details>
+      <p id="settingsStatus" role="status" aria-live="polite"></p>
+    </details>
+    <div id="theatreFilters" class="theatre-filters"></div>
     <div id="dayFilters" class="day-filters"></div>
     <p class="filter-caption">Tap a day to set custom hours, tap × to skip it</p>
     <div class="seat-legend">
@@ -66,5 +93,6 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script src="/static/favorites.js"></script>
 </body>
 </html>

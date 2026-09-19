@@ -62,6 +62,48 @@ function isMovieShowingsVisible(title) {
 let filterState = loadFilterState();
 let activePopoverDow = null;
 
+// -- Theatre picker: hide/show theatres client-side, persisted like the day
+// filters. Chips are built from whatever theatres the schedule contains, so
+// deployments with a different AMC_THEATRES set need no frontend changes.
+const THEATRE_STORE_KEY = "theatreFilters.v1";
+
+function loadTheatreState() {
+  try {
+    return JSON.parse(localStorage.getItem(THEATRE_STORE_KEY) || "{}");
+  } catch (err) {
+    return {};
+  }
+}
+
+let theatreState = loadTheatreState(); // short name -> false when hidden
+
+function isTheatreEnabled(short) {
+  return theatreState[short] !== false;
+}
+
+function renderTheatreFilters(shorts) {
+  const container = $("theatreFilters");
+  if (shorts.length < 2) {
+    container.innerHTML = ""; // nothing to pick with a single theatre
+    return;
+  }
+  container.innerHTML = shorts.map(short => `
+    <button class="theatre-chip${isTheatreEnabled(short) ? "" : " off"}" type="button" data-theatre="${escapeHtml(short)}">
+      ${escapeHtml(short)}
+    </button>
+  `).join("");
+
+  container.querySelectorAll(".theatre-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const short = btn.dataset.theatre;
+      theatreState[short] = !isTheatreEnabled(short);
+      localStorage.setItem(THEATRE_STORE_KEY, JSON.stringify(theatreState));
+      btn.classList.toggle("off", !isTheatreEnabled(short));
+      applyFilters();
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Time-range popover (two-knob slider, opened from a day chip)
 // ---------------------------------------------------------------------------
@@ -249,7 +291,9 @@ function applyFilters() {
         const entry = filterState[dow];
         let venueVisible = false;
 
-        if (entry.mode !== "rejected") {
+        if (!isTheatreEnabled(venueEl.dataset.theatre)) {
+          venueEl.querySelectorAll(".time-chip").forEach(chip => chip.classList.add("hidden"));
+        } else if (entry.mode !== "rejected") {
           venueEl.querySelectorAll(".time-chip").forEach(chip => {
             const t24 = chip.dataset.t24;
             const visible = entry.mode === "open" || timeInRange(t24, entry.start, entry.end);
@@ -283,26 +327,26 @@ function renderMovie(movie) {
   let rating = "";
   if (movie.lb_url) {
     const text = movie.lb_rating && movie.lb_rating !== "N/A"
-      ? `Letterboxd: <span class="star">★</span> ${movie.lb_rating}`
+      ? `Letterboxd: <span class="star">★</span> ${escapeHtml(movie.lb_rating)}`
       : `Letterboxd: <span class="star">★</span> N/A`;
-    rating = `<a class="lb-link" href="${movie.lb_url}" target="_blank" rel="noopener"><span class="lb-badge ${movie.lb_rating === "N/A" ? "lb-na" : ""}">${text}</span></a>`;
+    rating = `<a class="lb-link" href="${safeUrl(movie.lb_url)}" target="_blank" rel="noopener"><span class="lb-badge ${movie.lb_rating === "N/A" ? "lb-na" : ""}">${text}</span></a>`;
   } else {
     rating = `<span class="lb-badge lb-na">N/A</span>`;
   }
 
   const synopsis = movie.synopsis
-    ? `<p class="synopsis">${movie.synopsis.length > 280 ? movie.synopsis.slice(0, 277) + "…" : movie.synopsis}</p>`
+    ? `<p class="synopsis">${escapeHtml(movie.synopsis.length > 280 ? movie.synopsis.slice(0, 277) + "…" : movie.synopsis)}</p>`
     : "";
 
   const creditParts = [];
-  if (movie.director) creditParts.push(`<span class="credit-label">Dir.</span> ${movie.director}`);
-  if (movie.cast) creditParts.push(`<span class="credit-label">Cast</span> ${movie.cast}`);
+  if (movie.director) creditParts.push(`<span class="credit-label">Dir.</span> ${escapeHtml(movie.director)}`);
+  if (movie.cast) creditParts.push(`<span class="credit-label">Cast</span> ${escapeHtml(movie.cast)}`);
   const credits = creditParts.length
     ? `<p class="credits">${creditParts.join('<span class="credit-sep">·</span>')}</p>`
     : "";
 
   const poster = movie.poster
-    ? `<img class="poster" src="${movie.poster}" alt="" loading="lazy">`
+    ? `<img class="poster" src="${safeUrl(movie.poster)}" alt="" loading="lazy">`
     : `<div class="poster poster-placeholder" aria-hidden="true">🎬</div>`;
 
   const showingsVisible = isMovieShowingsVisible(movie.title);
@@ -320,21 +364,21 @@ function renderMovie(movie) {
       const dow = dowFromDateStr(g.items[0].date);
       const venues = g.items.map(s => {
         const fmt = s.format && s.format !== "Standard"
-          ? `<span class="format-tag">${s.format.replace(" at AMC", "")}</span>`
+          ? `<span class="format-tag">${escapeHtml(s.format.replace(" at AMC", ""))}</span>`
           : "";
         const times24 = s.times24 || [];
-        const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${t}</span>`).join("");
+        const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${escapeHtml(t)}</span>`).join("");
         return `
-          <div class="venue-block" data-fill-key="${s.fill_key}" data-dow="${dow}">
+          <div class="venue-block" data-fill-key="${escapeHtml(s.fill_key)}" data-dow="${dow}" data-theatre="${escapeHtml(s.theatre_short)}">
             <div>
-              <div class="showing-venue">${s.theatre_short}${fmt}</div>
+              <div class="showing-venue">${escapeHtml(s.theatre_short)}${fmt}</div>
               <div class="times">${times}</div>
             </div>
           </div>`;
       }).join("");
       return `
         <div class="showing-row">
-          <div class="showing-date">${g.label}</div>
+          <div class="showing-date">${escapeHtml(g.label)}</div>
           <div class="venue-list">${venues}</div>
         </div>`;
     }).join("");
@@ -345,7 +389,7 @@ function renderMovie(movie) {
         ${poster}
         <div class="movie-info">
           <div class="movie-title-row">
-            <span class="movie-title">${movie.title}</span>
+            <span class="movie-title">${escapeHtml(movie.title)}</span>
             ${rating}
           </div>
           ${credits}
@@ -362,6 +406,13 @@ function renderMovie(movie) {
       </div>
       <div class="showings${showingsVisible ? '' : ' hidden'}">${rows}</div>
     </div>`;
+}
+
+function safeUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? escapeHtml(url.href) : "";
+  } catch (_) { return ""; }
 }
 
 // Simple HTML escaper for attribute safety when injecting movie titles
@@ -504,6 +555,9 @@ async function load(forceRefresh = false) {
       $("movies").innerHTML = `<div class="empty">No showtimes found for the next 7 days.</div>`;
     } else {
       $("movies").innerHTML = movies.map(renderMovie).join("");
+      renderTheatreFilters([...new Set(
+        movies.flatMap(m => m.showings.map(s => s.theatre_short))
+      )].sort());
       applyFilters();
       attachMovieToggleHandlers();
     }
@@ -525,7 +579,5 @@ async function load(forceRefresh = false) {
   }
 }
 
-$("refreshBtn").addEventListener("click", () => load(true));
 renderDayFilters();
-load();
 

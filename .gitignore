@@ -10,3 +10,7 @@ venv/
 .dev_schedule_cache.json
 .claude/launch.json
 .claude/settings.local.json
+.local-data/
+.vercel/
+.env.*
+public/
