@@ -73,15 +73,38 @@ Claims provide throttling, not a transactional distributed lock: a time-slot bou
 
 The current project is connected to **DrakeLin/amc-showtimes**, with **main** as its production branch. The first deployment used a folder upload; subsequent changes deploy from GitHub.
 
+### How GitHub changes reach the live site
+
+1. Push a commit to a feature branch and open a pull request. Vercel can build a separate preview URL for checking that version.
+2. Merge into `main` (or push directly to `main`). Vercel's GitHub integration detects the commit and starts a production build.
+3. Vercel installs the Python dependencies, runs `python build.py` to copy the static assets, and packages `app.py` as a Flask function.
+4. After a successful production deployment, `showtimes-one.vercel.app` serves the new version. A failed build leaves the previous deployment serving traffic. Build logs and the source commit are visible under the project's **Deployments** tab.
+
+This uses [Vercel's Git integration](https://vercel.com/docs/git); a separate GitHub Actions deployment workflow is unnecessary. Local edits only reach Vercel after they are committed and pushed. README-only commits can also trigger a build.
+
+API keys are supplied from Vercel environment settings. Blob records live outside the deployment, so releasing code does not reset saved theaters or caches. Production and preview environment variables are configured separately; use a separate preview Blob store to prevent test settings from changing the live refresh list.
+
 ### Free-tier scope
 
 This is designed for personal-scale use on **Hobby**, with the included `vercel.app` domain and private Blob allowance. No paid database, paid domain, or plan upgrade is needed. It is not unlimited hosting: functions, Blob reads/writes, storage, and transfer all have quotas. Public edits and refreshes consume the same allowances.
 
 A full scheduled refresh uses **two writes per theater** (one claim + one weekly snapshot), rather than two per theater/date. Ten theaters × two writes × 30 days = **600 schedule/claim writes per month**, down from 4,200. Metadata, settings, directory refreshes, and manual refreshes are additional. At ten theaters, each additional full manual refresh costs up to 20 schedule/claim writes; frequent manual refreshes can still exhaust the allowance. The five-minute cooldown suppresses repeated successful refreshes but is not a monthly quota enforcer.
 
+There is **one scheduled job per day**, regardless of the number of selected theaters. Combining storage writes does not reduce the AMC requests: ten theaters over seven dates still need up to 70 showtime fetches for a complete refresh.
+
+| Selected theaters | Schedule/claim writes per complete daily run | Over 30 days | Over 31 days |
+| --- | ---: | ---: | ---: |
+| 2 | 4 | 120 | 124 |
+| 5 | 10 | 300 | 310 |
+| 10 | 20 | 600 | 620 |
+
+These are implementation estimates for completed schedule refreshes, excluding other operations, rather than measured bills. At ten theaters, the 30-day schedule baseline uses 30% of the 2,000 advanced-operation allowance.
+
 After migration, `/api/showtimes` reads **2N + 2 records** for N theaters: shared settings, global metadata, and one schedule + one metadata record per theater. A fully warm page adds one settings read and no metadata POSTs: **23 reads for ten theaters**, versus 183 previously. CDN cache hits reduce billed simple operations further. Initial migration, missing data, metadata batches, settings searches, and retries cost extra. An offline operation-count test checks the ten-theater baseline.
 
 [Vercel Blob Hobby](https://vercel.com/docs/vercel-blob/usage-and-pricing) includes 2,000 advanced operations and 10,000 simple operations monthly. These are monthly allowances, not a ten-refreshes-per-day quota. Monitor Usage; this optimization provides headroom for personal use, not unlimited public traffic. Cron retains a 200-second overall schedule budget; unfinished theaters/dates load on demand.
+
+Blob's Hobby allowance also includes 1 GB of storage and 10 GB of transfer. Exceeding its limits blocks Blob access instead of billing overages; Vercel documents a 30-day wait before access resumes. Check the project's Usage page for actual consumption, including metadata work and dashboard operations. The app does not enforce a monthly operation budget.
 
 ## Repository layout
 
