@@ -1,6 +1,6 @@
 // Bump the version whenever anything in SHELL changes -- the shell is served
 // cache-first, so installed PWAs keep the old assets until the SW updates.
-const CACHE = "showtimes-v9";
+const CACHE = "showtimes-v10";
 const SHELL = ["/", "/static/app.js", "/static/styles.css", "/static/favorites.js"];
 
 self.addEventListener("install", e => {

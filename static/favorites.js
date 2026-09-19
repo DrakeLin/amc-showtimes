@@ -34,8 +34,8 @@ function renderSettings() {
         star.setAttribute("aria-pressed", String(selected));
         star.addEventListener("click", () => {
           if (selected) draftFavorites = draftFavorites.filter(t => t.id !== theater.id);
-          else if (draftFavorites.length < 3) draftFavorites.push(theater);
-          else { settingsMessage("Choose up to three theaters."); return; }
+          else if (draftFavorites.length < 10) draftFavorites.push(theater);
+          else { settingsMessage("Choose up to 10 theaters."); return; }
           settingsMessage("Unsaved changes. Save theaters to update the refresh list.");
           renderSettings();
         });

@@ -98,8 +98,8 @@ Defaults and UI notes:
 `app.py` + `storage.py` implement the Vercel migration; see README's deployment
 section for setup and limits. This entrypoint does not use GCS or start the legacy
 refresh thread. The shared theater list is publicly editable, persisted separately in private Blob,
-and initially resolve NewPark/Mercado from AMC's live catalog. Only three favorites
-are permitted to constrain daily prefetch costs. Browser theater filters are still
+and initially resolve NewPark/Mercado from AMC's live catalog. Up to 10 theaters may be selected. Cron retains its time budget; dates it cannot
+finish load on demand. Ten daily theater refreshes may exceed free Blob operation quotas. Browser theater filters are still
 local preferences; they cannot change server favorites. Each theater/day fetch has
 a deadline and a durable five-minute claim. Claims throttle rather than guarantee
 exclusive execution across slot boundaries. Cron prioritizes daily theater snapshots then optionally enriches metadata/ratings.

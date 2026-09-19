@@ -4,7 +4,7 @@ A small movie-planning PWA: AMC showtimes for the next seven days, movie posters
 
 **Live:** [showtimes-one.vercel.app](https://showtimes-one.vercel.app/) · Vercel Hobby
 
-The initial theaters are **AMC NewPark 12** and **AMC Mercado 20**. Open **Settings** at the top right to change the shared list of up to three theaters included in daily refreshes. **Anyone can edit this list; there is no account or owner password.** Saving replaces the list for everyone. An empty list stops scheduled showtime fetching.
+The initial theaters are **AMC NewPark 12** and **AMC Mercado 20**. Open **Settings** at the top right to change the shared list of up to 10 theaters included in daily refreshes. **Anyone can edit this list; there is no account or owner password.** Saving replaces the list for everyone. An empty list stops scheduled showtime fetching.
 
 The main **Theaters:** row is a personal display filter: **×** hides a theater and **+** restores it. These actions do not change the shared refresh list or trigger upstream fetches. Theater visibility, day/time preferences, and collapsed movies stay in your browser. Weekdays default to 4–9 PM; weekends show the full day.
 
@@ -73,7 +73,7 @@ The current project is connected to **DrakeLin/amc-showtimes**, with **main** as
 
 This is designed for personal-scale use on **Hobby**, with the included `vercel.app` domain and private Blob allowance. No paid database, paid domain, or plan upgrade is needed. It is not unlimited hosting: functions, Blob reads/writes, storage, and transfer all have quotas. Public edits and refreshes consume the same allowances.
 
-Two theaters × seven dates × 30 days is roughly 420 schedule writes and 420 claim writes per month, plus metadata, settings, and any early refreshes. Three theaters raise that baseline to roughly 1,260 writes before metadata. Monitor Vercel Usage, especially Blob operation quotas. Daily cron, the three-theater cap, bounded requests, and cached metadata keep routine use small.
+Two theaters × seven dates × 30 days is roughly 420 schedule writes and 420 claim writes per month, plus metadata, settings, and any early refreshes. Ten theaters raise that baseline to roughly 4,200 writes before metadata if every date is refreshed daily; this can exceed the free Blob operation allowance. The 10-theater selection limit is not a guarantee that ten daily refreshes fit free quotas. Monitor Vercel Usage, especially Blob operation quotas. Daily cron, the 10-theater cap, bounded requests, and cached metadata keep routine use small.
 
 ## Repository layout
 
@@ -96,7 +96,7 @@ tests/              Offline backend tests
 | --- | --- | --- |
 | `/api/health` | GET | Runtime and configuration presence, never secret values |
 | `/api/theatres?q=…` | GET | Search the cached AMC directory |
-| `/api/favorites` | GET / PUT | Read or replace shared theater IDs; public writes require JSON; maximum three |
+| `/api/favorites` | GET / PUT | Read or replace shared theater IDs; public writes require JSON; maximum 10 |
 | `/api/showtimes` | GET | Cached movies and schedules, plus missing/stale theater-date jobs |
 | `/api/theater-day` | POST | Fetch one valid theater/date; optional throttled refresh |
 | `/api/metadata` | POST | Populate cached movie details and ratings for known schedules at a theater |

@@ -156,3 +156,12 @@ class VercelTests(unittest.TestCase):
 
     def test_metadata_rejects_arbitrary_theater(self):
         self.assertEqual(self.client.post('/api/metadata', json={'theater': 999}).status_code, 400)
+
+    def test_ten_theaters_allowed_but_eleven_rejected(self):
+        theaters = [{'id': i, 'name': f'AMC Test {i}'} for i in range(201, 212)]
+        web.store.put('catalog.json', {'ts': time.time(), 'theaters': theaters})
+        ids = [t['id'] for t in theaters]
+        self.assertEqual(self.client.put('/api/favorites', json={'ids': ids[:10]}).status_code, 200)
+        self.assertEqual(len(self.client.get('/api/favorites').json['theaters']), 10)
+        self.assertEqual(self.client.put('/api/favorites', json={'ids': ids}).status_code, 400)
+        self.assertEqual(len(self.client.get('/api/favorites').json['theaters']), 10)

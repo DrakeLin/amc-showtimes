@@ -18,7 +18,7 @@ app = Flask(__name__, static_folder='static')
 app.config.update(MAX_CONTENT_LENGTH=8192)
 store = Store()
 DEFAULT_NAMES = ['AMC NewPark 12', 'AMC Mercado 20']
-MAX_FAVORITES = 3
+MAX_FAVORITES = 10
 TTL = 24 * 3600
 
 
