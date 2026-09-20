@@ -36,6 +36,13 @@ header {
   padding: 12px 16px 10px;
 }
 
+/* Let the filters scroll away on phones to leave room for movie listings. */
+@media (max-width: 767px) {
+  header {
+    position: relative;
+  }
+}
+
 .header-inner {
   display: flex;
   align-items: center;
