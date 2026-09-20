@@ -256,6 +256,7 @@ def get_movie_details(movie_id):
         "cast": data.get("starringActors") or "",
         "synopsis": data.get("synopsis") or "",
         "release_year": release_year,
+        "runtime": data.get("runTime"),
     }
 
 

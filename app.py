@@ -232,6 +232,34 @@ def enrich_metadata():
 
 
 
+@app.get('/api/movie-runtime/<int:movie_id>')
+def movie_runtime(movie_id):
+    # One AMC lookup when opening a booking, reused for seven days.
+    # Only enrich movies already known to the saved theater metadata.
+    mid = str(movie_id)
+    meta = metadata([t['id'] for t in favorites()['theaters']])
+    if mid not in meta['movies']:
+        return jsonify(ok=False, error='Unknown movie'), 404
+    key = f'runtimes/{mid}.json'
+    saved = store.get(key, cached=True)
+    if saved and time.time() - saved['ts'] < 7 * TTL:
+        return jsonify(ok=True, runtime=saved.get('runtime'))
+    if not store.claim(f'claims/{int(time.time() // 300)}/runtime-{mid}.json'):
+        return jsonify(ok=True, runtime=None)
+    token = amc.REQUEST_DEADLINE.set(time.monotonic() + 12)
+    try:
+        value = amc.get_movie_details(movie_id).get('runtime')
+        try:
+            runtime = int(value)
+        except (TypeError, ValueError):
+            runtime = 0
+        runtime = runtime if 1 <= runtime <= 600 else None
+        store.put(key, {'ts': time.time(), 'runtime': runtime})
+        return jsonify(ok=True, runtime=runtime)
+    finally:
+        amc.REQUEST_DEADLINE.reset(token)
+
+
 def make_movies(raw, theater, day, meta, fetched_at=0):
     grouped = {}
     for show in raw:
@@ -243,7 +271,7 @@ def make_movies(raw, theater, day, meta, fetched_at=0):
             'id': movie_id or title, 'title': title, 'lb_rating': rating.get('rating', 'N/A'),
             'lb_url': rating.get('url', ''), 'synopsis': details.get('synopsis', ''),
             'poster': details.get('poster', ''), 'director': details.get('director', ''),
-            'cast': details.get('cast', ''), 'showings': []})
+            'cast': details.get('cast', ''), 'runtime': details.get('runtime'), 'showings': []})
         time24 = legacy._time24(show)
         if not time24:
             continue

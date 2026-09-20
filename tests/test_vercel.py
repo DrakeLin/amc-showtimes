@@ -30,6 +30,14 @@ class VercelTests(unittest.TestCase):
         self.no_network = patch('amc._get', side_effect=AssertionError('Unexpected network call'))
         self.no_network.start(); self.addCleanup(self.no_network.stop)
 
+    def test_runtime_is_cached_and_unknown_movie_does_not_fetch(self):
+        web.store.put('metadata.json', {'movies': {'8': {'ts': time.time()}}, 'ratings': {}})
+        with patch('amc.get_movie_details', return_value={'runtime': 134}) as details:
+            self.assertEqual(self.client.get('/api/movie-runtime/999').status_code, 404)
+            self.assertEqual(self.client.get('/api/movie-runtime/8').json['runtime'], 134)
+            self.assertEqual(self.client.get('/api/movie-runtime/8').json['runtime'], 134)
+            self.assertEqual(details.call_count, 1)
+
     def login(self):
         return {}
 

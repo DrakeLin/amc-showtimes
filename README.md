@@ -169,3 +169,7 @@ The previous [Cloud Run site](https://amc-showtimes-114648525819.us-west1.run.ap
 ## License
 
 [MIT](LICENSE)
+
+### Calendar integration runtime
+
+`GET /api/movie-runtime/<AMC movie ID>` returns `{ok, runtime}` with runtime in minutes (or null when unavailable). It only accepts movies already present in saved metadata, performs one bounded AMC detail lookup on demand, and caches the result for seven days. A five-minute claim prevents repeated concurrent lookups. Homebase uses this when confirming a showtime; no Letterboxd profile scraping is involved. `/api/showtimes` also includes runtime when available in its metadata.

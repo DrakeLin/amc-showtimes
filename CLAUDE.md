@@ -108,3 +108,5 @@ must not depend on cron. Top-right Settings edits the shared refresh list; the m
 Theaters row only filters locally. No OWNER_ACCESS_KEY or account is used. The Python Vercel SDK is the added runtime
 dependency for supported private Blob reads/writes; it is pinned. The old Cloud Run
 API is retained for rollback until the migrated deployment is verified.
+
+Vercel runtime integration: `/api/movie-runtime/<movie_id>` enriches only known movie IDs with AMC `runTime`, with a seven-day Blob cache and five-minute request claim. This endpoint is used on demand by Homebase calendar booking.
