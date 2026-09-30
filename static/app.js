@@ -306,12 +306,28 @@ function timeInRange(t24, start, end) {
   return t24 >= start || t24 <= end;
 }
 
+function browserDate(now = new Date()) {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function isUpcomingShowing(day, t24, now = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(t24)) return false;
+  const [year, month, date] = day.split('-').map(Number);
+  const [hour, minute] = t24.split(':').map(Number);
+  const start = new Date(year, month - 1, date, hour, minute);
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+  // Use local calendar arithmetic, including across daylight-saving changes.
+  return day >= browserDate(now) && start > now && start < end;
+}
+
 /**
  * Apply the current day/time filter settings to the rendered movie cards:
  * hide individual time chips, hide a showing-row/venue-block when empty,
  * and hide a whole movie card when nothing remains visible.
  */
 function applyFilters() {
+  const now = new Date();
+  let visibleCount = 0;
   document.querySelectorAll(".movie").forEach(movieEl => {
     let anyVisibleRow = false;
 
@@ -328,7 +344,8 @@ function applyFilters() {
         } else if (entry.mode !== "rejected") {
           venueEl.querySelectorAll(".time-chip").forEach(chip => {
             const t24 = chip.dataset.t24;
-            const visible = entry.mode === "open" || timeInRange(t24, entry.start, entry.end);
+            const visible = isUpcomingShowing(venueEl.dataset.date, t24, now) &&
+              (entry.mode === "open" || timeInRange(t24, entry.start, entry.end));
             chip.classList.toggle("hidden", !visible);
             if (visible) venueVisible = true;
           });
@@ -345,7 +362,15 @@ function applyFilters() {
     });
 
     movieEl.classList.toggle("hidden", !anyVisibleRow);
+    if (anyVisibleRow) visibleCount++;
   });
+  const empty = $("filteredEmpty");
+  if (empty) empty.classList.toggle('hidden', visibleCount > 0 || !document.querySelector('.movie'));
+  const subtitle = $("subtitle");
+  if (subtitle && /^\d+ movies ·/.test(subtitle.textContent)) {
+    const text = subtitle.textContent.replace(/^\d+ movies/, `${visibleCount} movies`);
+    if (subtitle.textContent !== text) subtitle.textContent = text;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +426,7 @@ function renderMovie(movie) {
         const times24 = s.times24 || [];
         const times = s.times.map((t, i) => `<span class="time-chip" data-t24="${times24[i] || ""}">${escapeHtml(t)}</span>`).join("");
         return `
-          <div class="venue-block" data-fill-key="${escapeHtml(s.fill_key)}" data-dow="${dow}" data-theatre="${escapeHtml(s.theatre_short)}">
+          <div class="venue-block" data-fill-key="${escapeHtml(s.fill_key)}" data-date="${escapeHtml(s.date)}" data-dow="${dow}" data-theatre="${escapeHtml(s.theatre_short)}">
             <div>
               <div class="showing-venue">${escapeHtml(s.theatre_short)}${fmt}</div>
               <div class="times">${times}</div>
@@ -612,4 +637,3 @@ async function load(forceRefresh = false) {
 }
 
 renderDayFilters();
-

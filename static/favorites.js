@@ -5,10 +5,12 @@ let searchResults = [];
 let browsingTheater = null;
 let loadGeneration = 0;
 let visibleMovies = [];
+let loadedBrowserDate = browserDate();
+let vercelMode = false;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
-    ...options, headers: {"Content-Type": "application/json", ...options.headers}
+    ...options, headers: {"Content-Type": "application/json", "X-Local-Date": browserDate(), ...options.headers}
   });
   const result = await response.json();
   if (!response.ok || !result.ok) throw new Error(result.error || "Request failed");
@@ -77,6 +79,7 @@ function renderVisible() {
 
 async function loadVercel(force = false) {
   const generation = ++loadGeneration;
+  loadedBrowserDate = browserDate();
   $("refreshBtn").disabled = true;
   $("error").classList.add("hidden");
   $("loading").classList.remove("hidden");
@@ -140,6 +143,7 @@ async function loadVercel(force = false) {
     const oldest = stamps.length ? Math.min(...stamps) : newest;
     const stamp = oldest ? new Date(oldest * 1000).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}) : "not yet loaded";
     setSubtitle(`${visibleMovies.length} movies · oldest data ${stamp} · availability may have changed`);
+    applyFilters();
   } catch (err) {
     $("error").textContent = err.message;
     $("error").classList.remove("hidden");
@@ -159,6 +163,7 @@ async function startShowtimes() {
     load();
     return;
   }
+  vercelMode = true;
   $("settingsBtn").classList.remove("hidden");
   $("settingsBtn").addEventListener("click", () => { renderSettings(); $("theaterSettings").showModal(); });
   $("closeSettings").addEventListener("click", () => $("theaterSettings").close());
@@ -194,4 +199,19 @@ async function startShowtimes() {
     $("loading").classList.add("hidden");
   }
 }
+
+function syncBrowserClock() {
+  if (document.visibilityState === 'hidden') return;
+  applyFilters();
+  if (browserDate() !== loadedBrowserDate) {
+    loadedBrowserDate = browserDate();
+    if (vercelMode) loadVercel();
+    else load();
+  }
+}
+// Expire times even while idle; recheck immediately after returning to the PWA.
+setInterval(syncBrowserClock, 1000);
+document.addEventListener('visibilitychange', syncBrowserClock);
+window.addEventListener('focus', syncBrowserClock);
+window.addEventListener('pageshow', syncBrowserClock);
 startShowtimes();

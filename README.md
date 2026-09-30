@@ -8,6 +8,8 @@ The initial theaters are **AMC NewPark 12** and **AMC Mercado 20**. Open **Setti
 
 The main **Theaters:** row is a personal display filter: **×** hides a theater and **+** restores it. These actions do not change the shared refresh list or trigger upstream fetches. Theater visibility, day/time preferences, and collapsed movies stay in your browser. Weekdays default to 4–9 PM; weekends show the full day.
 
+Your phone/browser clock determines today and the next seven calendar dates. Past dates and showtimes that have already started are hidden regardless of day/hour preferences; empty rows and movie cards disappear too. The view checks the clock every second while visible and immediately when you return to the app. Crossing midnight loads the new seven-day window automatically. This uses the device's local date/time without a location permission or timezone setting; displayed AMC times remain theater-local wall times.
+
 ## Architecture
 
 ```mermaid
@@ -62,7 +64,7 @@ Claims provide throttling, not a transactional distributed lock: a time-slot bou
    | `AMC_VENDOR_KEY` | Yes | Existing AMC vendor API key |
    | `BLOB_READ_WRITE_TOKEN` | Yes | Created by the connected private Blob store |
    | `CRON_SECRET` | Yes for daily refresh | Random secret of at least 32 characters; Vercel sends it as a Bearer token |
-   | `AMC_TIMEZONE` | No | Defaults to `America/Los_Angeles` |
+   | `AMC_TIMEZONE` | No | Background/older-client fallback; defaults to `America/New_York`. Browser views use the device date. |
    | `INITIAL_FAVORITE_NAMES` | No | JSON array of exact AMC names; defaults to NewPark/Mercado; only used before the first saved list |
 
    `OWNER_ACCESS_KEY` is **not used**. Editing the shared theater list is intentionally public. Never commit API keys or put them in frontend code.
@@ -145,11 +147,16 @@ LOCAL_DATA_DIR=.local-data .venv/bin/flask --app app run --debug
 node --check static/app.js
 node --check static/favorites.js
 node tests/test_favorites.cjs
+node tests/test_clock.cjs
 ```
 
 `LOCAL_DATA_DIR` is ignored on Vercel; ephemeral disk must never silently replace durable storage. The Python `vercel` SDK is pinned to `0.11.3`; its synchronous Blob API uses `overwrite` and `result.content`.
 
 The service worker caches the app shell. Bump its cache version in `static/sw.js` for frontend changes. API requests always use the network. Installed PWAs may need a reload after the updated worker activates.
+
+Browser API calls send `X-Local-Date: YYYY-MM-DD`; the API validates it within two calendar days of its fallback date to cover global timezones and prevent arbitrary historical fetching. Cron ignores this header and retains its daily schedule. Showtimes remain cached as full-day data; expiry is enforced by the browser without extra AMC requests. Offline regression checks cover the midnight mismatch, expired rows/cards, next-week cutoff, device timezones, and daylight-saving boundaries.
+
+September 30, 2026 verification: all 88 Python tests pass, along with four frontend loading scenarios, JavaScript syntax checks, and browser-clock tests under `America/New_York`, `America/Los_Angeles`, and `Asia/Tokyo`.
 
 ## Troubleshooting
 

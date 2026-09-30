@@ -23,7 +23,21 @@ TTL = 24 * 3600
 
 
 def today():
-    return datetime.now(ZoneInfo(os.environ.get('AMC_TIMEZONE', 'America/Los_Angeles'))).date()
+    server_day = datetime.now(ZoneInfo(os.environ.get('AMC_TIMEZONE', 'America/New_York'))).date()
+    # Browser requests use the device's calendar date. Cron has no device clock.
+    # Bound input so a public request cannot fetch arbitrary historical schedules.
+    if has_request_context() and request.path != '/api/cron':
+        value = request.headers.get('X-Local-Date')
+        if value:
+            try:
+                local_day = datetime.strptime(value, '%Y-%m-%d').date()
+                if local_day.isoformat() == value and abs((local_day - server_day).days) <= 2:
+                    return local_day
+            except ValueError:
+                pass
+            from werkzeug.exceptions import BadRequest
+            raise BadRequest('Invalid browser date')
+    return server_day
 
 
 def dates():

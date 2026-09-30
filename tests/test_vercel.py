@@ -17,6 +17,27 @@ CATALOG = [{'id': 101, 'name': 'AMC NewPark 12', 'city': 'Newark', 'state': 'CA'
 
 
 class VercelTests(unittest.TestCase):
+    def test_browser_date_drives_week_even_when_server_is_yesterday(self):
+        from datetime import datetime
+        with patch('app.datetime') as clock:
+            clock.now.return_value = datetime(2026, 9, 29, 22, 5)
+            clock.strptime = datetime.strptime
+            response = self.client.get('/api/showtimes', headers={'X-Local-Date': '2026-09-30'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['dates'], [f'2026-09-{d}' for d in [30]] +
+                         [f'2026-10-0{d}' for d in range(1, 7)])
+        self.assertTrue(all(job['date'] >= '2026-09-30' for job in response.json['pending']))
+
+    def test_browser_date_is_bounded_and_cron_ignores_it(self):
+        from datetime import datetime
+        with patch('app.datetime') as clock:
+            clock.now.return_value = datetime(2026, 9, 30, 1, 5)
+            clock.strptime = datetime.strptime
+            for day in ['2020-01-01', '2026-13-99', 'junk']:
+                self.assertEqual(self.client.get('/api/showtimes', headers={'X-Local-Date': day}).status_code, 400)
+            with web.app.test_request_context('/api/cron', headers={'X-Local-Date': '2020-01-01'}):
+                self.assertEqual(web.today().isoformat(), '2026-09-30')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

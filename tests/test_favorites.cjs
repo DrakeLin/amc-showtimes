@@ -8,7 +8,9 @@ const movie = (name, date = '2026-09-19') => ({id: '8', title: 'Example', showin
 async function scenario({force = false, pending = [], metadata = [], newMetadata = false}) {
   const calls = [];
   const elements = new Map();
-  const context = vm.createContext({console, setTimeout, $: id => {
+  const context = vm.createContext({console, setTimeout, setInterval() {},
+    browserDate: () => '2026-09-19', applyFilters() {},
+    document: {addEventListener() {}}, window: {addEventListener() {}}, $: id => {
     if (!elements.has(id)) elements.set(id, {classList: {add() {}, remove() {}}});
     return elements.get(id);
   }, setLoadingText() {}, setLoadingProgress() {}, setSubtitle() {}, mockApi: async (path, options) => {
