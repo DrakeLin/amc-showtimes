@@ -43,7 +43,11 @@ mock schedules, and do not connect Preview to the production Blob store.
 The Vercel cache stores one seven-date snapshot per theater. Keep the legacy-slot
 read fallback for rolling migrations, preserve failed dates, and use the same weekly
 writer for cron and both refresh endpoints. Refreshes bypass Blob's read cache;
-normal schedule/metadata views may lag by 60 seconds. The operation-count test
-asserts 20 schedule/claim writes for a ten-theater refresh and 22 reads for its
-`/api/showtimes` response. Do not reintroduce per-date writes or unconditional
+normal schedule/metadata views may lag by up to two minutes (60 seconds each
+in Blob's CDN and the bounded per-instance cache). Settings and refreshes bypass
+both caches. The operation-count test
+asserts 20 schedule/claim writes for a ten-theater refresh and 22 cold storage reads for its
+`/api/showtimes` response, falling to one settings read when warm. Keep failure,
+expiry, concurrency, and unchanged-save tests in `tests/test_storage.py` and
+`tests/test_vercel.py` passing. Do not reintroduce per-date writes or unconditional
 metadata batch requests on warm page loads.

@@ -270,3 +270,53 @@ class VercelTests(unittest.TestCase):
         fetch.assert_not_called()
         self.assertTrue(warning)
         self.assertEqual(saved['days'], {})
+
+    def test_warm_ten_theater_page_reads_only_shared_settings(self):
+        theaters = [{'id': i, 'name': f'AMC Test {i}'} for i in range(201, 211)]
+        web.store.put('favorites.json', {'theaters': theaters})
+        for theater in theaters:
+            web.store.put(f"schedules/{theater['id']}.json", {'days': {
+                day: {'date': day, 'ts': time.time(), 'raw': []} for day in web.dates()}})
+        web.store = Store()  # cold function: all 22 records read from storage
+        with patch.object(web.store, '_get', wraps=web.store._get) as read:
+            first = self.client.get('/api/showtimes')
+            self.assertEqual(read.call_count, 22)
+            read.reset_mock()
+            second = self.client.get('/api/showtimes')
+            self.assertEqual(second.json, first.json)
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_args.args[0], 'favorites.json')
+
+    def test_unchanged_favorites_do_not_write_or_change_revision(self):
+        original = self.client.get('/api/favorites').json
+        with patch.object(web.store, 'put', wraps=web.store.put) as put:
+            response = self.client.put('/api/favorites', json={'ids': [101, 102]})
+        self.assertEqual(response.json, original)
+        put.assert_not_called()
+
+    def test_failed_week_refresh_only_writes_claim(self):
+        old = {'days': {day: {'date': day, 'ts': time.time() - 90000, 'raw': []}
+                        for day in web.dates()}}
+        web.store.put('schedules/101.json', old)
+        with patch('amc.fetch_showtimes', side_effect=TimeoutError), patch.object(web.store, 'put', wraps=web.store.put) as put:
+            result = self.client.post('/api/theater-week', json={'theater': 101})
+        self.assertEqual(result.status_code, 200)
+        self.assertTrue(result.json['warning'])
+        self.assertEqual(put.call_count, 1)
+        self.assertTrue(put.call_args.args[0].startswith('claims/'))
+        self.assertEqual(web.store.get('schedules/101.json'), old)
+
+    def test_failed_metadata_batch_does_not_write_snapshot(self):
+        day = web.dates()[0]
+        web.store.put('schedules/101.json', {'days': {day: {'date': day, 'ts': time.time(),
+            'raw': [{'movieId': 8, 'movieTitle': 'Example'}]}}})
+        with patch('amc.get_movie_details', side_effect=TimeoutError), patch.object(web.store, 'put', wraps=web.store.put) as put:
+            response = self.client.post('/api/metadata', json={'theater': 101})
+        self.assertEqual(response.json['pending'], 1)
+        self.assertEqual(put.call_count, 1)
+        self.assertTrue(put.call_args.args[0].startswith('claims/'))
+
+    def test_exhausted_budget_does_not_write_claim_or_snapshot(self):
+        with patch.object(web.store, 'put', wraps=web.store.put) as put:
+            web.fetch_week(CATALOG[0], deadline=time.monotonic() - 1)
+        put.assert_not_called()
