@@ -110,3 +110,10 @@ dependency for supported private Blob reads/writes; it is pinned. The old Cloud 
 API is retained for rollback until the migrated deployment is verified.
 
 Vercel runtime integration: `/api/movie-runtime/<movie_id>` enriches only known movie IDs with AMC `runTime`, with a seven-day Blob cache and five-minute request claim. This endpoint is used on demand by Homebase calendar booking.
+
+Vercel storage optimization: `Store.get(cached=True)` reuses copied JSON for 60 seconds
+per warm instance (256-record bound), including missing records. Underlying Blob
+reads retain CDN caching (up to two minutes total staleness). Refresh and settings reads
+bypass both caches; writes update it or invalidate on failure. Unchanged settings and
+failed unchanged snapshots skip PUTs; partial refreshes still persist successes.
+A warm ten-theater showtimes response needs one storage read instead of 22.

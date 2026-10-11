@@ -1,4 +1,5 @@
 """Vercel entrypoint: durable favorites and bounded on-demand showtimes."""
+import copy
 import hashlib
 import hmac
 import json
@@ -138,7 +139,11 @@ def favorite_settings():
     available = {t['id']: t for t in catalog()}
     if any(i not in available for i in ids):
         return jsonify(ok=False, error='Unknown theater'), 400
-    saved = {'theaters': [available[i] for i in ids], 'revision': secrets.token_hex(12)}
+    selected = [available[i] for i in ids]
+    existing = store.get('favorites.json')
+    if existing is not None and existing['theaters'] == selected:
+        return jsonify(ok=True, **existing)
+    saved = {'theaters': selected, 'revision': secrets.token_hex(12)}
     store.put('favorites.json', saved)
     return jsonify(ok=True, **saved)
 
@@ -209,6 +214,7 @@ def enrich_metadata():
         if not store.claim(f'claims/{int(time.time() // 300)}/metadata-{tid}-{digest}.json'):
             retry_after = 5
         else:
+            before = copy.deepcopy(meta)
             token = amc.REQUEST_DEADLINE.set(time.monotonic() + 35)
             try:
                 # Save posters before slower rating lookups, even if a lookup fails.
@@ -237,7 +243,8 @@ def enrich_metadata():
                         app.logger.warning('Rating unavailable for %s', mid)
             finally:
                 amc.REQUEST_DEADLINE.reset(token)
-                store.put(f'metadata/{tid}.json', meta)
+                if meta != before:
+                    store.put(f'metadata/{tid}.json', meta)
     return jsonify(ok=True, metadata={mid: {
         **{k: meta['movies'].get(mid, {}).get(k, '') for k in ('poster', 'synopsis', 'director', 'cast')},
         'lb_rating': meta['ratings'].get(mid, {}).get('rating', 'N/A'),
@@ -314,6 +321,8 @@ def fetch_week(theater, force=False, deadline=None):
            time.time() - saved['days'][day]['ts'] >= (300 if force else TTL)]
     if not due:
         return saved, None
+    if deadline is not None and time.monotonic() >= deadline:
+        return saved, 'Refresh budget reached. Saved dates remain available; retry in a few minutes.'
     key = f'claims/{int(time.time() // 300)}/week-{tid}.json'
     if not store.claim(key):
         return saved, 'This theater is being refreshed, or was recently attempted. Retry in a few minutes.'
@@ -332,9 +341,10 @@ def fetch_week(theater, force=False, deadline=None):
                 warning = 'Some dates could not refresh. Previous showtimes are kept; retry in a few minutes.'
     finally:
         amc.REQUEST_DEADLINE.reset(token)
-    # Exactly one snapshot write, including partial success and an empty migration.
-    # Storage failures propagate; never acknowledge data that was not persisted.
-    store.put(f'schedules/{tid}.json', saved)
+    # Failed fetches do not rewrite identical snapshots. Partial successes still
+    # persist with their own timestamps; storage failures are never acknowledged.
+    if saved != previous:
+        store.put(f'schedules/{tid}.json', saved)
     if has_request_context():
         g.setdefault('schedules', {})[tid] = saved
     return saved, warning
